@@ -1,0 +1,4 @@
+Model	Format	Locis	Description	Name	ID
+Phenotype-SOR	rdm_l_	T	Original DECIPHER HPO-SOR network has been randomized without changing HPO frequencies	rdm_l	PhenSOR
+SOR-Coordinates	rdm_vl_	T	Original DECIPHER HPO-SORs has been randomized changing loci coordinates, without changing sizes	rdm_vl	CorSOR
+Phenotype-Gene	rdm_g_	F	Original DECIPHER HPO-Gene network has been randomized without changing HPO frequencies	rdm_g	PhenGene

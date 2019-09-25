@@ -1,0 +1,40 @@
+# @author Pedro Seoane Zonjic, Fernando Moreno Jabato
+
+split_hpo_for_analysis){
+	cut -f 1 $working_net |sort -u > uniq_hpo
+	?
+	split -d -n l/$n_frags uniq_hpo frag_
+}
+
+term_pairs_enrichment_analysis){
+	resources: -n cal -c 2 
+	echo [cpu]
+	source ~soft_bio_267/initializes/init_R
+	net_name=`basename $working_net`
+	type_terms=`echo $clprof_enrichments | tr ':' ' '`
+	type_terms_array=( $type_terms )
+	for term in ${type_terms_array[@]}
+	do
+	    ?
+	    enrich_by_onto.R -p $pval_thresold -e $term -o $term'_enrichment' -n $working_net -t $net_name -f&
+	done
+	wait
+}
+
+enrichment_analysis_[BP;MF;%CC]){
+	resources: -n cal -c $n_frags
+	echo [cpu]
+	source ~soft_bio_267/initializes/init_R
+	net_name=`basename $working_net`
+	for i in {1..$n_frags}
+	do
+		count=$(( i - 1 ))
+		grep -F -f 'split_hpo_for_analysis)/frag_0'$count $working_net > 'sample_'$i
+		rm 'enrichment_table_'$i
+		?
+		topgo_enrich.R -d 'sample_'$i -o 'enrichment_table_'$i -p $pval_thresold -s (*) -t $net_name&
+	done
+	wait
+		# lines=`wc -l < enrichment_table`
+		# if (( $lines =< 1 )) ; exit 1 ; fi
+}

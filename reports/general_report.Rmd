@@ -1,0 +1,2025 @@
+---
+author: "Fernando Moreno Jabato"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+    fig_width: 12
+---
+
+<style>
+    body .main-container {
+        max-width: 90%;
+    }
+</style>
+
+
+```{r config, include = FALSE}
+###########################################
+##               PACKAGES                ##
+###########################################
+
+# Load necessary packages
+suppressPackageStartupMessages(require(knitr))
+suppressPackageStartupMessages(require(ggplot2))
+suppressPackageStartupMessages(require(ontologyIndex))
+suppressPackageStartupMessages(require(igraph))
+suppressPackageStartupMessages(require(grid))
+suppressPackageStartupMessages(require(naniar))
+suppressPackageStartupMessages(require(org.Hs.eg.db))
+#suppressPackageStartupMessages(require(canvasXpress))
+suppressPackageStartupMessages(require(dplyr))
+#require(ggradar)
+
+###########################################
+##               CONFIGURE               ##
+###########################################
+
+# Select special models
+model_target_old <- "dec"
+model_target <- "Real"
+model_gold <- "hpo"
+
+# Prepare pvalues used
+pval_thr <- c(1e-3,1e-4,1e-5)
+hyi_thr <- 2.0
+
+# Load random models necessary data
+rdm_models <- data[['rdm_models_info']]
+	rdm_models$Model       <- as.character(rdm_models$Model)
+	rdm_models$Format      <- as.character(rdm_models$Format)
+	rdm_models$Locis       <- as.logical(rdm_models$Locis)
+	rdm_models$Description <- as.character(rdm_models$Description)
+	rdm_models$Name        <- as.character(rdm_models$Name)
+	rdm_models$ID          <- as.character(rdm_models$ID)
+
+# Prepare recursive text
+chunks <- function(code){paste("```{r}",code,"```",sep="\n")}
+
+###########################################
+##                MODULEs                ##
+###########################################
+flags <- list(topology_info    = TRUE,
+	          rdm_info         = TRUE,
+	          enrichs_load     = TRUE,
+	          topology_graphs  = TRUE,
+	          enrich_stats     = TRUE,
+	          ratios           = TRUE,
+	          filtered         = TRUE,
+	          ics              = TRUE,
+	          patients         = TRUE,
+	          patients_triplet = TRUE)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r enrichs_load, include = FALSE, eval = flags$enrichs_load}
+
+##################################################
+##                 ENRICHS LOAD                 ##
+##################################################
+
+# Load META-GO enrichments
+meta_go <- data[['meta_go']]
+	meta_go$Model      <- as.character(meta_go$Model)
+	meta_go$HPO        <- as.character(meta_go$HPO)
+	meta_go$Pval       <- as.double   (meta_go$Pval)
+	meta_go$BP         <- as.numeric  (meta_go$BP)
+	meta_go$CC         <- as.numeric  (meta_go$CC)
+	meta_go$MF         <- as.numeric  (meta_go$MF)
+	meta_go$Genes      <- as.numeric  (meta_go$Genes)
+	meta_go$GenesList  <- as.double   (meta_go$GenesList)
+	meta_go$SignalList <- as.character(meta_go$SignalList)
+	meta_go$GenesPercentageOfTotal <- as.character(meta_go$GenesPercentageOfTotal)
+
+	# Add new columns
+	meta_go$Terms <- meta_go$BP + meta_go$CC + meta_go$MF
+
+# Load META-KEGG enrichments
+meta_kegg <- data[['meta_kegg']]
+	meta_kegg$Model      <- as.character(meta_kegg$Model)
+	meta_kegg$HPO        <- as.character(meta_kegg$HPO)
+	meta_kegg$Pval       <- as.double   (meta_kegg$Pval)
+	meta_kegg$Terms      <- as.numeric  (meta_kegg$Terms)
+	meta_kegg$Genes      <- as.numeric  (meta_kegg$Genes)
+	meta_kegg$GenesList  <- as.double   (meta_kegg$GenesList)
+	meta_kegg$SignalList <- as.character(meta_kegg$SignalList)
+	meta_kegg$GenesPercentageOfTotal <- as.character(meta_kegg$GenesPercentageOfTotal)	
+
+# Load META-REAC enrichments
+meta_reac <- data[['meta_reac']]
+	meta_reac$Model      <- as.character(meta_reac$Model)
+	meta_reac$HPO        <- as.character(meta_reac$HPO)
+	meta_reac$Pval       <- as.double   (meta_reac$Pval)
+	meta_reac$Terms      <- as.numeric  (meta_reac$Terms)
+	meta_reac$Genes      <- as.numeric  (meta_reac$Genes)
+	meta_reac$GenesList  <- as.double   (meta_reac$GenesList)
+	meta_reac$SignalList <- as.character(meta_reac$SignalList)
+	meta_reac$GenesPercentageOfTotal <- as.character(meta_reac$GenesPercentageOfTotal)	
+
+
+
+# Substitute old target label by new one
+meta_go$Model[which(meta_go$Model == model_target_old)] <- model_target
+meta_kegg$Model[which(meta_kegg$Model == model_target_old)] <- model_target
+meta_reac$Model[which(meta_reac$Model == model_target_old)] <- model_target
+
+
+
+# Collapse enrichments metadata
+models_info_metaenrichs <- as.data.frame(do.call(rbind,lapply(c(model_target,rdm_models$Format), function(model){
+	# Find model indexees
+	if(model == model_target){
+		indx <- list(go   = which(meta_go$Model   == model),
+			         kegg = which(meta_kegg$Model == model),
+			         reac = which(meta_reac$Model == model))
+		num_models <- 1
+		mname <- model_target
+	}else{
+		indx <- list(go   = which(grepl(model,meta_go$Model)),
+			         kegg = which(grepl(model,meta_kegg$Model)),
+			         reac = which(grepl(model,meta_reac$Model)))
+		num_models <- length(unique(meta_go$Model[indx$go]))
+		mname <- rdm_models$ID[which(rdm_models$Format == model)]
+	}
+
+	# Prepare info container
+	info <- data.frame(Model     = model,
+					   Name      = mname,
+					   Num       = num_models,
+					   GO_indx   = "",
+					   KEGG_indx = "",
+					   REAC_indx = "",
+					   stringsAsFactors = F)
+
+	# Add indexes
+	info$GO_indx   <- list(indx$go)
+	info$KEGG_indx <- list(indx$kegg)
+	info$REAC_indx <- list(indx$reac)
+
+	# Return info
+	return(info)
+})))
+
+
+
+
+
+# Obtain absolute number of models
+models <- c(model_target,setdiff(unique(meta_go$Model),c(model_target,model_gold)))
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+```{r ratios_load, include = FALSE, eval = flags$ratios}
+##################################################
+##                  RATIOS LOAD                 ##
+##################################################
+
+# Load ratios
+ratios <- data[['deviance_ratios']]
+	ratios$Signal_type <- as.character(ratios$Signal_type)
+	ratios$RDM_type    <- as.character(ratios$RDM_type)
+	ratios$HPO         <- as.character(ratios$HPO)
+	ratios$Pval_thr    <- as.double(ratios$Pval_thr)
+	ratios$Target      <- as.numeric(ratios$Target)
+	ratios$RDM         <- as.double(ratios$RDM)
+	ratios$Ratio       <- as.double(ratios$Ratio)
+
+
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+
+
+## **Introduction**
+This preport has been automatically generated by PhenFun protocol pipeline. Paper reference: **(#REF)**.
+
+This documents contains information about results obtained at different steps of PhenFun protocol. This protocol is used to infer Phenotype-Functional Systems (FunSys) relationships starting at a cohort of patients with Phenotypes (annotated using Human Phenotype Ontology - HPO) and CNVs profiles annotated. Final sections of this reports are:
+
+* **Source data:** inforation about initial cohort used.
+* **Random models:** implemented on this pipeline.  
+* **Topological data:** about original cohort network and random networks generated.
+* **Functional Systems enrichment:** results obtained using genes linked to cohort phenotypes. This pipeline currently implement GO, KEGG and Reactome enrichments.
+* **Ratio study:** own study to see tendences on raw enrichments results.
+* **Filtering by Random-like:** results filtered by random-like probability.
+* **IC results:** results study using index of content (IC) by topological and cohort observed frequencies.
+* **Patients plots:** Phenotype-FunSys data projected to initial cohort patients. 
+
+All this sections can be easily accesed using the lateral menu.   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r topology_info, include = FALSE, eval = flags$topology_info}
+
+##################################################
+##                TOPOLOGY INFO                 ##
+##################################################
+
+# Load our data topology info
+locis <- data[['full_networks']]
+	locis$tag <- as.character(locis$tag)
+	locis$HPO <- as.character(locis$HPO)
+	locis$Loci <- as.character(locis$Loci)
+	locis$Genes <- as.character(locis$Genes)
+	locis$HasGenes <- unlist(lapply(locis$Genes,function(genes){nchar(genes)>0}))
+CNVs <- data[['source_cnvs']]
+	CNVs[,1] <- as.character(CNVs[,1])
+	CNVs[,2] <- as.numeric(CNVs[,2])
+	CNVs[,3] <- as.numeric(CNVs[,3])
+	CNVs[,4] <- as.numeric(CNVs[,4])
+colnames(CNVs) <- c("Chr","Start","End","Size")
+meta_loci <- data[['meta_loci']]
+	meta_loci$Model          <- as.character(meta_loci$Model)
+	# meta_loci$HPO            <- as.character(meta_loci$HPO)
+	# meta_loci$Locis          <- as.numeric(meta_loci$Locis)
+	# meta_loci$LocisWithGenes <- as.numeric(meta_loci$LocisWithGenes)
+	# meta_loci$Genes          <- as.numeric(meta_loci$Genes)
+	# meta_loci$MeanLocisGenes <- as.double(meta_loci$MeanLocisGenes)
+	# meta_loci$GenesList      <- as.character(meta_loci$GenesList)
+	# meta_loci$LocisList      <- as.character(meta_loci$LocisList)
+	# meta_loci$LocisWGList    <- as.character(meta_loci$LocisWGList)
+real_sors <- data[['real_sors']]
+twopats_sors <- data[['twopats_validated_sors']]
+colnames(real_sors) <- c("Chr","Start","End","Size","Pheno","HyI","SOR")
+colnames(twopats_sors) <- c("Chr","Start","End","Size","Pheno","HyI","SOR")
+# real_sors <- real_sors[which(real_sors$HyI >= hyi_thr),]
+
+
+
+# Substitute old model target albel by new one
+locis$tag[which(locis$tag == model_target_old)] <- model_target
+meta_loci$Model[which(meta_loci$Model == model_target_old)] <- model_target
+
+
+# Prepare final list of HPOs
+hpos_list <- list(DEC = unique(locis$HPO[which(locis$tag == model_target)]),
+	              All = unique(locis$HPO))
+
+# # Load HPOdb info
+# hpo_genes <- data[['hpo_db_phen2gene.txt']]
+# 	colnames(hpo_genes) <- c("HPO","Gene")
+# 	hpo_genes$HPO <- as.character(hpo_genes$HPO)
+# 	hpo_genes$Gene <- as.character(hpo_genes$Gene)
+
+# Load real tripartite network
+source_net <- data[['source_net']] 
+trinet <- data[['net']]
+
+# Parse info
+aux_indx <- which(grepl("HP",trinet[,1]))
+source_hpos <- unique(trinet[aux_indx,1])
+source_pats <- unique(c(trinet[aux_indx,2],trinet[-aux_indx,1]))
+source_sors <- unique(trinet[-aux_indx,2])
+real_hpos <- unique(source_net[which(grepl("HP",source_net[,1])),1])
+
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+## **Data Summary**
+Our pipeline starts using two data inputs:
+
+* **Cohort input:** a file with Phenotypes and CNVs profiles linked by patients. In original case, DECIPHER dataset is used. This cohort data will be named as *Real* in this report.
+* **Human Phenotype Ontology (HPO):** all phenotypes in this study must be annotated using the Human Phenotype Ontology and it is loaded to map phenotypes to their HPO identifiers.
+
+PhenFun protocol first step process this inputs to filter patients and apply statistical features to transform Phenotype-Patient-Mutation tripartite network to a Phenotype-Mutation bipartite network:
+
+1. Patients are filtered by arbitrary rules if it is necessary. Original study filters DECIPHER data to use patients with *de novo* mutations.
+2. Patients CNVs are studied using NetAnalyzer ruby gem to obtain Small Overlaping Regions (SORs) between patients and only high prevalent mutated regions along initial cohort will be used. Original study used a threshold of >=3 patients to validate a SOR.
+3. Current Pheotype-Patient-SOR tripartite network is projected to a Phenotype-SOR weighted bipartite network using Hypergeometric Index (HyI) feature of NetAnalyzer. This bipartite network is filtered applying a threshold over HyI values. Original study used >=2.0 threhold which corresponds to an alpha value of 0,001. 
+4. Finally survival set of SORs is compared against human genome to find (partial or fully) affected genes. Original sutdy used HG19 (GRCh.37) human genome version. 
+
+After this transformations, this study case stats are:
+
+* Number of HPO terms into source network: `r length(real_hpos)`
+* Number of HPO terms into tripartite network: `r length(source_hpos)`
+* Number of HPO terms into HyI filtered network: `r length(unique(meta_loci$HPO[which(meta_loci$Model == model_target)]))`
+* Number of HPO terms into HyI filtered network from source: `r length(intersect(unique(meta_loci$HPO[which(meta_loci$Model == model_target)]),real_hpos))`
+* Number of HPO terms into HyI filtered network with, at least, one gene linked (Real cohort source): `r length(unique(meta_loci$HPO[which(meta_loci$Model == model_target & meta_loci$Genes > 0)]))`
+* Number of SORs into Real cohort (before HyI threshold): `r length(source_sors)`
+* Number of SORs into Real cohort (after HyI threshold): `r length(unique(locis$Loci[which(locis$tag == model_target)]))`
+* Number of SORs with any gene linked into Real cohort (after HyI threshold): `r length(unique(locis$Loci[which(locis$tag == model_target & locis$HasGenes == TRUE)]))`
+* Summary of number of SORs per HPO into Real cohort: 
+```{r summ_locis, echo = FALSE}
+summary(as.vector(table(locis$Loci[which(locis$tag == model_target)])))
+```
+* Summary of genes linked to an HPO into Real cohort:
+```{r summ_model, echo = FALSE}
+summary(meta_loci$Genes[which(meta_loci$Model == model_target)])  
+```
+* Number of genes per SOR into Real cohort: 
+```{r summ_genes, echo = FALSE}
+aux <- match(unique(locis$Loci[which(locis$tag == model_target)]), locis$Loci)
+names(aux) <- unique(locis$Loci[which(locis$tag == model_target)])
+summary(lengths(regmatches(locis$Genes[aux],gregexpr(":",locis$Genes[aux])))+1)
+```
+
+* Distribution of source CNVs sizes are:
+```{r cnvs_sizes, echo = FALSE}
+summary(CNVs$Size)
+cnv_size <- ggplot(CNVs, aes(x=Size)) +
+			geom_histogram(bins = 50,colour="black", fill="white") +
+			scale_x_continuous(breaks=seq(min(CNVs$Size),max(CNVs$Size),round((max(CNVs$Size)-min(CNVs$Size))/30))) +
+			theme(axis.text.x = element_text(angle = 45)) +
+			labs(x = "CNV size (bp)")
+plot(cnv_size)
+```
+
+* Distribution of SOR sizes are:
+```{r sor_size, echo = FALSE}
+# head(real_sors)
+# Obtain unique list of SORs and it's sizes
+sizes <- as.data.frame(do.call(rbind,lapply(unique(real_sors$SOR), function(sor){
+	size <- real_sors$Size[which(real_sors$SOR == sor)[1]]
+	return(data.frame(SOR  = sor,
+					  Size = size,
+					  stringsAsFactors = F))
+})))
+
+sizes_source <- as.data.frame(do.call(rbind,lapply(unique(twopats_sors$SOR), function(sor){
+	size <- twopats_sors$Size[which(twopats_sors$SOR == sor)[1]]
+	return(data.frame(SOR  = sor,
+					  Size = size,
+					  stringsAsFactors = F))
+})))
+
+
+
+# head(sizes)
+summary(sizes$Size)
+sor_size <- ggplot(sizes, aes(x=Size)) +
+			geom_histogram(bins = 50,colour="black", fill="white") +
+			scale_x_continuous(breaks=seq(min(CNVs$Size),max(CNVs$Size),round((max(CNVs$Size)-min(CNVs$Size))/30))) +
+			theme(axis.text.x = element_text(angle = 45)) +
+			labs(x = "SOR size (bp)")
+plot(sor_size)
+```
+
+* Number of affected nucleotides into source net (validated by >=2 patients) Human Genome: `r sum(sizes_source$Size)`
+* Number of affected nucleotides into filtered net (after apply HyI threshold) Human Genome: `r sum(sizes$Size)`
+```{r check_1, echo = FALSE}
+if(nrow(sizes) != length(unique(real_sors$SOR))){
+	message("WARNING!!: number of SORs does not match with Sizes list")
+}
+```
+
+
+* Distribution of Phen-SOR Hypergeometric (HyI) values:
+```{r sor_hyi, echo = FALSE}
+# real_sors[which(real_sors$HyI < 2),]
+summary(real_sors$HyI)
+sor_hyi <- ggplot(real_sors, aes(x=HyI)) +
+		   geom_histogram(binwidth=.5, colour="black", fill="white") +
+		   labs(x = "Phenotype-SOR hypergeometric relationship values")
+plot(sor_hyi)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r rdm_info, echo = FALSE, eval = flags$rdm_info}
+##################################################
+##                 RANDOM INFO                  ##
+##################################################
+
+# Obtain descriptions
+descriptions <- paste(rdm_models$Model, " (",rdm_models$ID,")",sep = "")
+descriptions <- paste(descriptions,rdm_models$Description,sep = " : ")
+# Give HTML format
+# descriptions <- paste(paste("<li>",descriptions,"</li>",sep=""), collapse = "\n")
+# descriptions <- paste("<ol>",descriptions,"</ol>\n",sep = "\n")
+# Give Markdown format
+descriptions <- paste("*",descriptions)
+descriptions <- paste(descriptions,collapse = "\n")
+
+# Prepare to expand
+descriptions <- knit_expand(text = descriptions)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+## **Random models**
+PhenFun protocol implements several Random Model types to avoid enrichment of random relations into real cohort results. Random models used for this study have been:
+Several random models have been implemented. Here you have a short description of each one:
+
+`r knit(text = descriptions)`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r topology_graphs, echo = FALSE, eval = flags$topology_graphs}
+##################################################
+##               TOPOLOGY GRAPHS                ##
+##################################################
+# Prepare topology info about all models
+Topologies_metainfo <- as.data.frame(do.call(rbind,lapply(models, function(model){
+	# Check
+	if(any(unlist(lapply(which(!rdm_models$Loci),function(i){grepl(rdm_models$Format[i],model)})))){
+		tmodel <- model_target
+	}else{
+		tmodel <- model
+	}
+	# Obtain type
+	if(model == model_target){
+		type = model_target
+	}else{
+		type = ''
+	}
+
+	# Find indexes
+  	indx <- which(locis$tag == tmodel & locis$HasGenes == TRUE)
+  	# Number of HPO
+  	hpos <- length(unique(locis$HPO[indx]))
+  	# Number of locis
+  	loc <- length(unique(locis$Loci[indx]))
+  	# Number of genes
+  	genes <- unique(unlist(strsplit(locis$Genes[setdiff(indx,which(is.na(locis$Genes)))],":")))
+  	# Return info
+  	info <- data.frame(Model     = model,
+  					   Type      = type,
+                       HPOs      = hpos,
+                       Locis     = loc,
+                       Links     = length(indx),
+                       Genes     = length(genes),
+                       Phenotypes_GO   = -1,
+                       Phenotypes_KEGG = -1,
+                       Phenotypes_REAC = -1,
+                       stringsAsFactors = F)	 
+	return(info)
+})))
+
+# Generate unique list of graphs with only genes info grouped by rdm_type
+#genes_graphs <- lapply(seq(nrow(rdm_models)),function(i){
+invisible(lapply(seq(nrow(rdm_models)),function(i){
+	# Prepare info indexes
+	indx <- which(grepl(rdm_models$Format[i], Topologies_metainfo$Model))
+
+#	Topologies_metainfo$Type[indx] <<- rdm_models$Name[i]
+	Topologies_metainfo$Type[indx] <<- rdm_models$ID[i]
+}))
+
+model_types <- c(model_target, rdm_models$ID)
+model_cols  <- c("dodgerblue3","firebrick2","olivedrab4","aquamarine3","darkorchid3")
+Topologies_metainfo$Type <- factor(Topologies_metainfo$Type, levels = model_types)
+
+
+
+# Generate graphs grouped by random type
+topo_graphs <- lapply(which(rdm_models$Locis),function(i){
+	# Prepare info indexes
+	indx <- which(grepl(rdm_models$Format[i], Topologies_metainfo$Model))
+
+	# FIRST PLOT: HPOs with, at leat, one gene
+	p1 <- ggplot(Topologies_metainfo[indx,], aes(x = Model, y = HPOs))+
+		theme(axis.text.x=element_blank()) +
+	    geom_point() +
+	    # ylim(min(Topologies_metainfo$HPOs[indx])-10,
+	    #         max(Topologies_metainfo$HPOs[indx])+10) +
+	    # ggtitle("HPOs >=1 gene") +
+	    labs(x=paste(rdm_models$Model[i]," (",length(which(grepl(rdm_models$Format[i],unique(locis$tag)))),")",sep=""),y="Phenotypes with genes") +
+	    geom_hline(yintercept = Topologies_metainfo$HPOs[1], linetype = "dashed", color = model_cols[1]) +
+	    geom_text(aes(10,Topologies_metainfo$HPOs[1],label = paste(model_target,": ",Topologies_metainfo$HPOs[1],sep=""), vjust = -1), color = model_cols[1])
+
+	# SECOND PLOT: Number of locis with, at least, one gene
+	p2 <- ggplot(Topologies_metainfo[indx,], aes(x = Model, y = Locis))+
+		theme(axis.text.x=element_blank()) +
+	    geom_point() +
+	    # ylim(min(Topologies_metainfo$Locis[indx])-10,
+	    #         max(Topologies_metainfo$Locis[indx])+10) +
+	    # ggtitle("SORs >=1 gene") +
+	    labs(x = paste(rdm_models$Model[i]," (",length(which(grepl(rdm_models$Format[i],unique(locis$tag)))),")",sep=""),y = "SORs with genes") +
+	    geom_hline(yintercept = Topologies_metainfo$Locis[1], linetype = "dashed", color = model_cols[1]) +
+	    geom_text(aes(10,Topologies_metainfo$Locis[1],label = paste(model_target,": ",Topologies_metainfo$Locis[1],sep=""), vjust = -1), color = model_cols[1])
+
+	# THIRD PLOT: number of links into HPO-Loci network
+	p3 <- ggplot(Topologies_metainfo[indx,], aes(x = Model, y = Links))+
+		theme(axis.text.x=element_blank()) +
+	    geom_point() +
+	    # ylim(min(Topologies_metainfo$Links[indx])-10,
+	    #         max(Topologies_metainfo$Links[indx])+10) +
+	    # ggtitle("Links (HPO-SOR)") +
+	    labs(x = paste(rdm_models$Model[i]," (",length(which(grepl(rdm_models$Format[i],unique(locis$tag)))),")",sep=""), y = "Pheno-SOR links") + 
+	    geom_hline(yintercept = Topologies_metainfo$Links[1], linetype = "dashed", color = model_cols[1]) +
+	    geom_text(aes(10,Topologies_metainfo$Links[1],label = paste(model_target,": ",Topologies_metainfo$Links[1],sep=""), vjust = -1), color = model_cols[1])
+
+	# FOURTH PLOT: Number of Genes linked to Locis
+	p4 <- ggplot(Topologies_metainfo[indx,], aes(x = Model, y = Genes))+
+		theme(axis.text.x=element_blank()) +
+	    geom_point() +
+	    # ylim(15000,35000) +
+#	    ylim(min(Topologies_metainfo$Genes[indx])-10,
+#	            max(c(Topologies_metainfo$Genes[indx],Topologies_metainfo$Genes[1]))+10) +
+	    # ggtitle("Genes affected") +
+	    labs(x = paste(rdm_models$Model[i]," (",length(which(grepl(rdm_models$Format[i],unique(locis$tag)))),")",sep=""), y = "Genes annotated") +
+	    geom_hline(yintercept = Topologies_metainfo$Genes[1], linetype = "dashed", color = model_cols[1]) +
+	    geom_text(aes(10,Topologies_metainfo$Genes[1],label = paste(model_target,": ",Topologies_metainfo$Genes[1],sep=""), vjust = -1), color = model_cols[1])
+
+	# Return generated plots
+	return(list(p1,p2,p3,p4))
+})
+
+# Add new 
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+## **Topological stats**
+At this point, there are one Real cohort network and `r nrow(rdm_models)` different Random Models. Per each random model a set of four graphs is going to be plotted with the following structure:
+
+* **Title:** Random Model name with the number of models generated between parenthesis.
+* **Graph 1 (top-left):** per each model, number of different phenotypes whith information to be studied.
+* **Graph 2 (top-right):** per each model, number of SORs with, at least, one gene affected.
+* **Graph 3 (bottom-left):** per each model, number of (density) Phenotype-SOR links. 
+* **Graph 4 (bottom-right):** per each model, number of different genetical items affected (partial or fully contained into mutated SORs).
+* **All graphs:** have an horizontal blue line which corresponds to the Real cohort value obtained for the plotted parameter.
+
+Defined graphs are shown now grouped by Random Model type: 
+```{r echo = FALSE, eval = flags$topology_graphs}
+# j <- 1
+# for(i in which(rdm_models$Loci)){
+for(j in seq_along(which(rdm_models$Loci))){
+	# message(paste(rdm_models$Model[i]," (",length(which(grepl(rdm_models$Format[i],unique(locis$tag)))),")",sep=""))
+	grid.arrange(
+		topo_graphs[[j]][[1]],
+		topo_graphs[[j]][[2]],
+		topo_graphs[[j]][[3]],
+		topo_graphs[[j]][[4]],
+		# top = paste(rdm_models$Model[i]," (",length(which(grepl(rdm_models$Format[i],unique(locis$tag)))),")",sep=""),
+		nrow = 2)
+	# j <- j+1
+}
+rm(j)
+# rm(i)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+Also a boxplot graph of genes affected per model, grouped by Random Model type is plotted:
+```{r echo = FALSE, eval = flags$topology_graphs}
+genes_plot <- ggplot(Topologies_metainfo[-which(Topologies_metainfo$Model == model_target),], aes(x = Type, y = Genes, fill = Type)) +
+			  geom_boxplot(show.legend = FALSE) +
+			  scale_fill_manual(values = model_cols[-1]) +
+			  ylim(10000,35000) +
+			  labs(x = "", y = "Genes annotated") +
+			  geom_hline(yintercept = Topologies_metainfo$Genes[1], linetype = "dashed", color = model_cols[1]) +
+			  geom_text(aes(2,Topologies_metainfo$Genes[1],label = paste(model_target,": ",Topologies_metainfo$Genes[1],sep=""), vjust = -1), color = model_cols[1])
+
+plot(genes_plot)
+
+# canvasXpress
+# toplot_y <- t(Topologies_metainfo[-which(Topologies_metainfo$Model == model_target),"Genes"])
+# toplot_x <- Topologies_metainfo[-which(Topologies_metainfo$Model == model_target),]
+# rownames(toplot_x) <- colnames(toplot_y)
+# canvasXpress(data              = toplot_y,
+#              smpAnnot          = toplot_x,
+#              groupingFactors   = list("Type"),
+#              graphType         = "Boxplot",
+#              colorBy           = "Type")
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r enrich_stats, echo = FALSE, eval = flags$enrich_stats}
+##################################################
+##                 ENRICHS DATA                 ##
+##################################################
+
+# Prepare useful indexes
+indx_pval <- list(GO   = which(meta_go$Pval == pval_thr[1]),
+				  KEGG = which(meta_kegg$Pval == pval_thr[1]),
+				  REAC = which(meta_reac$Pval == pval_thr[1]))
+
+indx_hpo <- list(GO   = lapply(hpos_list$DEC, function(hp){which(meta_go$HPO == hp)}),
+				 KEGG = lapply(hpos_list$DEC, function(hp){which(meta_kegg$HPO == hp)}),
+				 REAC = lapply(hpos_list$DEC, function(hp){which(meta_reac$HPO == hp)}))
+
+
+# Prepare <HPO, FunSysAmount> tuples per each model type and source
+meta_enrichs <- as.data.frame(do.call(rbind,lapply(seq(nrow(models_info_metaenrichs)), function(i){
+ 	info <- as.data.frame(do.call(rbind,lapply(seq_along(hpos_list$DEC),function(j){
+ 		# Find HPO indexes
+ 		indx_go <- intersect(models_info_metaenrichs$GO_indx[[i]],intersect(indx_hpo$GO[[j]],indx_pval$GO))
+ 		indx_kegg <- intersect(models_info_metaenrichs$KEGG_indx[[i]],intersect(indx_hpo$KEGG[[j]],indx_pval$KEGG))
+ 		indx_reac <- intersect(models_info_metaenrichs$REAC_indx[[i]],intersect(indx_hpo$REAC[[j]],indx_pval$REAC))
+
+ 		# Obtain signal
+ 		go   <- sum(meta_go$Terms[indx_go])     / models_info_metaenrichs$Num[i]
+ 		kegg <- sum(meta_kegg$Terms[indx_kegg]) / models_info_metaenrichs$Num[i]
+ 		reac <- sum(meta_reac$Terms[indx_reac]) / models_info_metaenrichs$Num[i]
+
+ 		# Return info
+ 		return(data.frame(Model = models_info_metaenrichs$Name[i],
+ 						  Num   = models_info_metaenrichs$Num[i],
+ 						  HPO   = hpos_list$DEC[j],
+ 						  GO    = go,
+ 						  KEGG  = kegg,
+ 						  REAC  = reac,
+ 						  stringsAsFactors = F))
+ 	})))
+
+ 	# Return
+ 	return(info)
+})))
+meta_enrichs$Model <- factor(meta_enrichs$Model, levels = model_types)
+
+# Per each model in topologies structure, include number of HPOs with
+invisible(lapply(seq(nrow(Topologies_metainfo)),function(i){
+	# Find model
+	indx_go   <- which(meta_go$Model   == Topologies_metainfo$Model[i] & meta_go$Terms   > 0)
+	indx_kegg <- which(meta_kegg$Model == Topologies_metainfo$Model[i] & meta_kegg$Terms > 0)
+	indx_reac <- which(meta_reac$Model == Topologies_metainfo$Model[i] & meta_reac$Terms > 0)
+	# Obtain number of HPOs with, at least, one FunSys
+	indx_go <- intersect(indx_go, indx_pval$GO)
+	indx_kegg <- intersect(indx_kegg, indx_pval$KEGG)
+	indx_reac <- intersect(indx_reac, indx_pval$REAC)
+	# Update
+	Topologies_metainfo$Phenotypes_GO[i]   <<- length(indx_go)
+	Topologies_metainfo$Phenotypes_KEGG[i] <<- length(indx_kegg)
+	Topologies_metainfo$Phenotypes_REAC[i] <<- length(indx_reac)
+}))
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+## **Functional Systems enrichment**
+With SORs genes affected sets linked to Phenotypes, an overrepresentation method can be aplied to identify (enrich) Functioan Systems affected by these mutated genes. PhenFun protocol implements three FunSys enrichments based on linked terms structures. This three are:
+
+* **Gene Ontology terms (GO):** with a hierarchical structure, contains information about Molecular Functions (MF), Biological Processes (BP) and Cellular Components (CC), this last one is excluded from PhenFun protocol results. This enrichment is performed using TopGO package.
+* **Kyoto Enciclopedia of Genes and Genomes (KEGG):** relates terms which represents biological pathways. This enrichment is performed using ClusterProfiler package. 
+* **Reactome (REAC):** with a hierarchical structure, relates terms which represents biological pathways. This enrichment is performed using ReactomePA package.
+
+Enrichment results are plotted in a three graphs sets, grouped by enrichment source type, with the following structure:
+
+* **Graph 1:** boxplot of affected genes per model, grouped by random model type. Blue line represents affected genes found into real cohort network.
+* **Graph 2:** boxplot of phenotypes with any enriched terms per model, grouped by random model type. Blue line represents phenotypes with results for real cohort and black line represents total phenotypes of real cohort network. 
+* **Graph 3:** boxplot of enriched terms per phenotype grouped by model. Random model cases represents median value obtained for the same phenotype along all random models generated of each type.
+
+Finally, obtained enrichments stats are the following:
+```{r enrich_stats_plots, echo = FALSE, eval = flags$enrich_stats}
+plot_enrichments <- function(meta_info,x1,y1,x2,y2,ylab1=y1,ylab2=y2){
+	# PREPARE NECESSARY INTRA INFO
+	# Group data by model 
+	PhenFun_per_model <- meta_info %>%
+						 group_by(Model) %>%
+						 summarise(Phenotypes = n(),
+						 		   Links      = sum(Terms),
+						 		   Mean_Links = mean(Terms))
+	# Substitute model names by model Type
+	PhenFun_per_model$Model_Type <- PhenFun_per_model$Model 
+	invisible(lapply(seq_along(rdm_models$Format),function(i){
+		# Take format
+		format <- rdm_models$Format[i]
+		# Find models
+		indx <- which(grepl(format,PhenFun_per_model$Model_Type))
+		# Update
+		PhenFun_per_model$Model_Type[indx] <<- rdm_models$ID[i]
+	}))
+
+	# Calculate Standard deviation per model
+	PhenFun_per_model_g <- PhenFun_per_model %>%
+						   group_by(Model_Type) %>%
+						   summarise(Mean_Links  = mean(Links),         # Mean
+						   			 sd_Links    = sd(Links),           # Standard deviation
+						   			 Num_Models  = n(),                 # Num models
+						   			 se_links    = sd(Links)/sqrt(n()),
+						   			 Mean_Phenos = mean(Phenotypes),
+						   			 sd_Phenos   = sd(Phenotypes),
+						   			 se_Phenos   = sd(Phenotypes)/sqrt(n())) # Standard error
+	# Set levels
+	PhenFun_per_model_g$Model_Type <- factor(PhenFun_per_model_g$Model_Type, levels = model_types)
+
+
+
+	############# MAKE PLOTS
+
+	# PLOT 1: Boxplot number of HPOs with, at least, one FunSys linked
+	p1 <- ggplot(Topologies_metainfo[-which(Topologies_metainfo$Model == model_target),], aes_string(x = x1, y = y1, fill = x1)) +
+		  geom_boxplot(show.legend = FALSE) +
+		  scale_fill_manual(values = model_cols[-1]) +
+		  ylim(0,length(hpos_list$DEC)+50) +
+		  labs(x = "", y = ylab1) +
+		  theme(axis.text.x = element_blank()) +
+		  geom_hline(yintercept = Topologies_metainfo[1,y1], linetype = "dashed", color = model_cols[1]) +
+		  geom_text(aes(2,Topologies_metainfo[1,y1],label = paste(model_target,": ",Topologies_metainfo[1,y1],sep=""), vjust = -1), color = model_cols[1]) +
+		  geom_hline(yintercept = length(hpos_list$DEC), linetype = "dashed", color = "black") +
+		  geom_text(aes(1,length(hpos_list$DEC),label = paste(model_target," source: ",length(hpos_list$DEC),sep=""), vjust = -1), color = "black")
+	# PLOT 2: barplot with number of Phen-Funsys links per model type
+	p2 <- ggplot(PhenFun_per_model_g, aes(x = Model_Type, y = Mean_Links, fill = Model_Type)) +
+		  geom_col(show.legend = FALSE) +
+		  scale_fill_manual(values = model_cols, name = "Model") +
+		  theme(axis.text.x = element_blank()) +
+		  geom_errorbar(aes(ymin = Mean_Links - sd_Links, ymax = Mean_Links + sd_Links), width = 0.2, na.rm=TRUE) +
+		  labs(x = "", y = paste(y2,"Phen links ± s.d.",sep="-"))
+	# PLOT 3: Boxplot of number of FunSys linked to each HPO, grouped by rdm_type
+	p3 <- ggplot(meta_enrichs, aes_string(x = x2, y = y2, fill = x2)) +
+		  geom_boxplot() +
+		  theme(axis.text.x = element_blank()) +
+		  scale_fill_manual(values = model_cols) +
+		  ylim(0,max(meta_enrichs[,y2])+50) +
+		  labs(x = "", y = ylab2)
+
+	# genes_plot_aux <- genes_plot + theme(axis.text.x = element_blank())
+	# Plot
+	grid.arrange(p1,p2,p3,nrow = 1)
+
+}
+
+plot_enrichments(meta_go[meta_go$Pval == pval_thr[1] & meta_go$Terms > 0,],x1 = "Type",y1 = "Phenotypes_GO",x2 = "Model",y2 = "GO",ylab1 = "Phenotypes with any GO terms", ylab2 = "GO terms per Phenotype")
+plot_enrichments(meta_kegg[meta_kegg$Pval == pval_thr[1] & meta_kegg$Terms > 0,],x1 = "Type",y1 = "Phenotypes_KEGG",x2 = "Model",y2 = "KEGG",ylab1 = "Phenotypes with any KEGG terms", ylab2 = "KEGG terms per Phenotype")
+plot_enrichments(meta_reac[meta_reac$Pval == pval_thr[1] & meta_reac$Terms > 0,],x1 = "Type",y1 = "Phenotypes_REAC",x2 = "Model",y2 = "REAC",ylab1 = "Phenotypes with any Reactome terms", ylab2 = "REACTOME terms per Phenotype")
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+Also a study of Phenotype-FunSys links per model applying different thresholds is included:
+
+```{r phen_fun_links, echo = FALSE, eval = flags$enrich_stats}
+plot_enrichments_links <- function(meta_info,y2="",x2="", return_table = FALSE){
+	# PREPARE NECESSARY INTRA INFO
+	# Group data by model 
+	PhenFun_per_model <- meta_info %>%
+						 group_by(Model) %>%
+						 summarise(Phenotypes = n(),
+						 		   Links      = sum(Terms),
+						 		   Mean_Links = mean(Terms))
+	# Substitute model names by model Type
+	PhenFun_per_model$Model_Type <- PhenFun_per_model$Model 
+	invisible(lapply(seq_along(rdm_models$Format),function(i){
+		# Take format
+		format <- rdm_models$Format[i]
+		# Find models
+		indx <- which(grepl(format,PhenFun_per_model$Model_Type))
+		# Update
+		PhenFun_per_model$Model_Type[indx] <<- rdm_models$ID[i]
+	}))
+
+	# Obtain FS_terms per model
+	PhenFun_per_model$FS_Terms <- unlist(lapply(seq(nrow(PhenFun_per_model)),function(i){
+		# Obtain signals
+		fs_terms <- unique(unlist(lapply(which(meta_info$Terms > 0 & meta_info$Model == PhenFun_per_model$Model[i]),function(j){unlist(strsplit(meta_info$SignalList[j],";"))})))
+		# Update
+		return(length(fs_terms))
+	}))
+
+	# Calculate Standard deviation per model
+	PhenFun_per_model_g <- PhenFun_per_model %>%
+						   group_by(Model_Type) %>%
+						   summarise(Mean_Links  = mean(Links),         # Mean
+						   			 sd_Links    = sd(Links),           # Standard deviation
+						   			 Num_Models  = n(),                 # Num models
+						   			 se_links    = sd(Links)/sqrt(n()),
+						   			 Mean_Phenos = mean(Phenotypes),
+						   			 sd_Phenos   = sd(Phenotypes),
+						   			 se_Phenos   = sd(Phenotypes)/sqrt(n()),
+						   			 Mean_FS     = mean(FS_Terms),
+						   			 sd_FS       = sd(FS_Terms),
+						   			 se_FS       = sd(FS_Terms)/sqrt(n())) # Standard error
+	# Set levels
+	PhenFun_per_model_g$Model_Type <- factor(PhenFun_per_model_g$Model_Type, levels = model_types)
+
+	if(return_table){
+		return(PhenFun_per_model_g)
+	}else{
+		p2 <- ggplot(PhenFun_per_model_g, aes(x = Model_Type, y = Mean_Links, fill = Model_Type)) +
+			  geom_col(show.legend = FALSE) +
+			  scale_fill_manual(values = model_cols, name = "Model") +
+			  theme(axis.text.x = element_blank()) +
+			  geom_errorbar(aes(ymin = Mean_Links - sd_Links, ymax = Mean_Links + sd_Links), width = 0.2, na.rm=TRUE) +
+			  labs(x = x2, y = paste(y2,"Phen links ± s.d.",sep="-"))
+	
+		return(p2)
+	}
+}
+
+
+plot_enrichments_phenos <- function(meta_info, pvalue_thr,xlab,ylab){
+	# Find target 
+	indx_pval <- which(meta_info$Pval == pvalue_thr & meta_info$Terms > 0)
+
+	# Copy topologies info 
+	topo_inf <- Topologies_metainfo
+
+	# Update data
+	topo_inf$Phenotypes_FS <- unlist(lapply(seq(nrow(topo_inf)),function(i){
+		# Find model
+		indx_model <- which(meta_info$Model == topo_inf$Model[i])
+		# Obtain number of HPOs with, at least, one FunSys
+		indx_model <- intersect(indx_model, indx_pval)
+		# Update
+		topo_inf$Phenotypes_FS[i] <<- length(indx_model)
+	}))
+
+
+	# PLOT 1: Boxplot number of HPOs with, at least, one FunSys linked
+	p1 <- ggplot(topo_inf[-which(topo_inf$Model == model_target),], aes_string(x = "Type", y = "Phenotypes_FS", fill = "Type")) +
+		  geom_boxplot(show.legend = FALSE) +
+		  scale_fill_manual(values = model_cols[-1]) +
+		  ylim(0,length(hpos_list$DEC)+50) +
+		  labs(x = xlab, y = ylab) +
+		  theme(axis.text.x = element_blank()) +
+		  geom_hline(yintercept = topo_inf$Phenotypes_FS[1], linetype = "dashed", color = model_cols[1]) +
+		  geom_text(aes(2,topo_inf$Phenotypes_FS[1],label = paste(model_target,": ",topo_inf$Phenotypes_FS[1],sep=""), vjust = -1), color = model_cols[1]) +
+		  geom_hline(yintercept = length(hpos_list$DEC), linetype = "dashed", color = "black") +
+		  geom_text(aes(1,length(hpos_list$DEC),label = paste(model_target," source: ",length(hpos_list$DEC),sep=""), vjust = -1), color = "black")
+
+	return(p1)
+}
+
+
+# ONLY FOR GO
+# Plot barplots
+to_plot <- lapply(pval_thr, function(thr){
+	plot_enrichments_links(meta_info = meta_go[meta_go$Pval == thr,], y2 = "GO", x2 = paste("P-val <=",thr))
+})
+
+# Plot boxplots
+to_plot2 <- lapply(pval_thr, function(thr){
+	plot_enrichments_phenos(meta_info = meta_go, pvalue_thr = thr, xlab = paste("P-val <=",thr), ylab = "Phenotypes with any GO terms")
+})
+
+# Finally display
+grid.arrange(grobs = to_plot,nrow = 1)
+grid.arrange(grobs = to_plot2,nrow = 1)
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+Data ploted for **GO** with threshold <=`r pval_thr[1]`
+```{r phen_go_tables, echo = FALSE, eval = flags$enrich_stats}
+plot_enrichments_links(meta_info = meta_go[meta_go$Pval == pval_thr[1] & meta_go$Terms > 0,], return_table = TRUE)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+Data ploted for **KEGG** with threshold <=`r pval_thr[1]`
+```{r phen_kegg_tables, echo = FALSE, eval = flags$enrich_stats}
+plot_enrichments_links(meta_info = meta_kegg[meta_kegg$Pval == pval_thr[1] & meta_kegg$Terms > 0,], return_table = TRUE)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+Data ploted for **Reactome** with threshold <=`r pval_thr[1]`
+```{r phen_reac_tables, echo = FALSE, eval = flags$enrich_stats}
+plot_enrichments_links(meta_info = meta_reac[meta_reac$Pval == pval_thr[1] & meta_reac$Terms > 0,], return_table = TRUE)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r ratios, echo = FALSE, eval = flags$ratios}
+##################################################
+##                    RATIOS                    ##
+##################################################
+
+# Useful variables
+hpos <- rep(0,length(hpos_list$DEC))
+names(hpos) <- hpos_list$DEC
+incr_ratio <- 1.10
+
+# Useful function
+
+#' @param set dataframe with ratios and extra info
+#' @param hpos list of HPO terms to be studied
+#' @param signalType to filter (GO,KEGG;REAC)
+#' @param thr applied over signal
+#' @param w weight to apply over maximum or minimum, default = 0.2
+sortHPOs <- function(set,hpos,signalType,thr,w){
+	# Speedup variable
+	indx <- which(set$Signal_type == signalType & set$Pval_thr == thr)
+	# Load ratios
+	df <- as.data.frame(do.call(rbind,lapply(seq_along(hpos), function(i){
+		tindex <- intersect(indx, which(set$HPO == hpos[i]))
+		return(data.frame(HPO   = hpos[i],
+						  SType = signalType,
+						  Thr   = thr,
+						  DEC   = ifelse(length(tindex) == 0, NA, set$Target[tindex]),
+						  RDM   = ifelse(length(tindex) == 0, NA, set$RDM[tindex]),
+						  Ratio = ifelse(length(tindex) == 0, NA, set$Ratio[tindex]),
+						  Type  = "Regular",
+						  stringsAsFactors = F))
+	})))
+	# Identify special case
+	#	Inf: DECIPHER has signal but RDM hasn't
+	#	Neg: RDM has signal but DECIPHER hasn't
+	#	Zer: Any (DEC and RDM) has signal
+	inf_indexes <- intersect(indx,which(!is.na(set$Target) & is.na(set$RDM)))
+	neg_indexes <- intersect(indx,which( is.na(set$Target) & !is.na(set$RDM)))
+	zer_indexes <- intersect(indx,which( is.na(set$Target) & is.na(set$RDM)))
+	
+	# Update special cases values
+	if(length(inf_indexes)> 0){
+		# Obtain substitute value
+		val <- (1+w) * max(df$Ratio, na.rm = T)
+		# Find and substitute
+		aux_i <- which(df$HPO %in% set$HPO[inf_indexes])
+		df$Ratio[aux_i] <- val
+		df$Type [aux_i] <- "Inf"
+	}
+	if(length(neg_indexes)> 0){
+		# Obtain substitute value
+		val <- (1+w) * min(df$Ratio, na.rm = T)
+		# Find and substitute
+		aux_i <- which(df$HPO %in% set$HPO[neg_indexes])
+		df$Ratio[aux_i] <- val
+		df$Type [aux_i] <- "Neg"
+	}
+	if(length(neg_indexes)> 0){
+		# Obtain substitute value
+		val <- (max(df$Ratio, na.rm = T) + min(df$Ratio, na.rm = T)) / 2
+		# Find and substitute
+		aux_i <- which(df$HPO %in% set$HPO[zer_indexes])
+		df$Ratio[aux_i] <- val
+		df$Type [aux_i] <- "Zer"
+	}
+
+	# Sort values
+	df <- df[order(df$Ratio, na.last = FALSE),]
+
+	# Store as factors
+	df$Type <- factor(df$Type, levels = c("Neg","Regular","Zer","Inf"))
+
+
+	# Return
+	return(df)
+}
+
+
+# Sort HPOs by ratios
+ratiosOrder <- lapply(rdm_models$Name,function(model){
+	# Take RDM model ratios subset
+	aux <- ratios[which(ratios$RDM_type == model & ratios$HPO %in% hpos_list$DEC),]
+	# Calculate for each threshold
+	go <- lapply(pval_thr,function(pval){
+		return(sortHPOs(set  = aux,
+						hpos = hpos_list$DEC,
+						signalType = "GO",
+						thr  = pval,
+						w    = 0.2))
+	})
+
+	# KEGG
+	kegg <- lapply(pval_thr,function(pval){
+		return(sortHPOs(set  = aux,
+						hpos = hpos_list$DEC,
+						signalType = "KEGG",
+						thr  = pval,
+						w    = 0.2))
+	})
+
+	# REAC
+	reac <- lapply(pval_thr,function(pval){
+		return(sortHPOs(set  = aux,
+						hpos = hpos_list$DEC,
+						signalType = "REACTOME",
+						thr  = pval,
+						w    = 0.2))
+	})
+
+	# Return sorted values
+#	return(info)
+	return(list(GO = go, KEGG = kegg, REAC = reac))
+})
+
+
+
+# Plots useful variables
+cols  <- c("red","dodgerblue","purple","green")
+
+
+########################### GO PLOTS
+plot_ratios <- function(target,reference,to_plot = c("Regular","Neg")){
+	lapply(seq_along(rdm_models$Name),function(i){
+		hpos_reference <- ratiosOrder[[i]][[reference]][[1]]$HPO
+		v0 <- which(ratiosOrder[[i]][[reference]][[1]]$Ratio >= 0)[1]
+
+		# Per each pval
+		plot_pvals <- lapply(seq_along(pval_thr), function(j){
+			# Prepare data
+			aux <- ratiosOrder[[i]][[target]][[j]]
+			aux$HPO <- factor(aux$HPO, levels = hpos_reference)
+			aux <- aux[which(aux$Type %in% to_plot),] 
+			# Plot
+			pp <- ggplot(aux, aes(x = HPO, y = Ratio, colour = Type)) +
+				  theme(axis.text.x = element_blank()) +
+				  labs(x = ifelse(i == length(ratiosOrder),"Phenotypes",""), 
+	 			  	   y = ifelse(j == 1,paste("Ratio (",rdm_models$ID[i],")",sep = ""),"")) +
+	 			  ggtitle(ifelse(i == 1,paste("pval <=",pval_thr[j]),"")) +
+	 			  geom_point(show.legend = FALSE, na.rm = TRUE) +
+	  			  scale_color_manual(values = cols) +
+	 			  geom_hline(yintercept = 0) +
+	 			  geom_vline(xintercept = v0, linetype = "dashed", color = "blue")
+
+	 		return(pp)
+		})
+		return(plot_pvals)
+	})
+}
+
+go_ratios_plots <- plot_ratios("GO","GO")
+kegg_ratios_plots <- plot_ratios("KEGG","GO")
+reac_ratios_plots <- plot_ratios("REAC","GO")
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+## **Study by "ratio"**
+First aproximation to study enrichment results consist on compare enrichment signal amount obtained for Real cohort dataset against mean enrichment signal amount obtained per Random Model type. To do this, a *Ratio* value is calculated dividing signal obtained for real cohort between signal of random models. After it, a logarithm function is applied to normalize results. 
+
+
+Applied formula is:
+$$
+Ratio(Phenotype_i) = \log(\frac{EnrichedTerms(Phenotype_{i,REAL})}{mean(EnrichedTerms(Phenotype_{i,RDM*}))})
+$$
+
+For each enriched results type, a grid of graphs is plotted. This grid have the following structure:
+
+* **Top to bottom:** each row contains ratio graphs obtained after compare against an specific random model type. 
+* **Left to right:** each column contains ratio comparisson graphs obtained after applied an specific p-value threshold over enrichment results.
+* **All graphs elements:** have blue points which corresponds to ratio values obtained per each phenotype. Red dots are artifacts which show that ratio can not be calculated for the specific phenotype because the Real cohort or the Random Model has not signal related to the phenotype.
+* **All graphs x-axis:** all graphs of the same row have the same x-axis (phenotypes) order which is obtained sorting the elements of the first column graph in increasing order. Finally, the blue vertical dashed line shows the first phenotype which obtaine a non-negative ratio value in the first column graph **for GO enrichments** (even if it is KEGG or REAC set). 
+
+Finally, ratios graph per each enrichment type are:
+```{r ratios_plots, echo = FALSE, eval = flags$ratios}
+plot_ratios2 <- function(plots,label){
+	grid.arrange(plots[[1]][[1]],
+	 			plots[[1]][[2]],
+	 			plots[[1]][[3]],
+	 			plots[[2]][[1]],
+	 			plots[[2]][[2]],
+	 			plots[[2]][[3]],
+	 			plots[[3]][[1]],
+	 			plots[[3]][[2]],
+	 			plots[[3]][[3]],
+	 			top = label,
+	 			nrow = 3)
+}
+
+# plot_ratios2(go_ratios_plots,"GO RATIOS")
+# plot_ratios2(kegg_ratios_plots,"KEGG RATIOS")
+# plot_ratios2(reac_ratios_plots,"REACTOME RATIOS")
+
+message("GO RATIOS")
+plot_ratios2(go_ratios_plots,"")
+message("KEGG RATIOS")
+plot_ratios2(kegg_ratios_plots,"")
+message("REACTOME RATIOS")
+plot_ratios2(reac_ratios_plots,"")
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r filtered, echo = FALSE, eval = flags$filtered}
+##################################################
+##                  FILTERED                    ##
+##################################################
+GO_f <- list(ByModel = data[['filtered_go_extended']],
+	         ByAll   = data[['filtered_go_unified']])
+KEGG_f <- list(ByModel = data[['filtered_kegg_extended']],
+	           ByAll   = data[['filtered_kegg_unified']])
+REAC_f <- list(ByModel = data[['filtered_reactome_extended']],
+	           ByAll   = data[['filtered_reactome_unified']])
+
+# Preare and Unify
+unify_filtered_data <- function(set){
+	# if(is.null(set)){
+	# 	return(set)
+	# }else if(is.null(dim(set))){
+	# 	return(set)
+	# }
+	# Prepare container
+	set$ByModel$Signal <- as.character(set$ByModel$Signal)
+	set$ByAll$Signal <- as.character(set$ByAll$Signal)
+
+	# Transform both sets
+	set$ByModel <- set$ByModel[which(set$ByModel$PvalThr == pval_thr[1]),-which(colnames(set$ByModel) %in% c("PvalThr","Ratio"))]
+	set$ByAll <- cbind(Model = rep("All",nrow(set$ByAll)),set$ByAll)
+	# Prepare signal list format
+	invisible(lapply(seq(nrow(set$ByModel)),function(i){
+		set$ByModel$Signal[i] <<- strsplit(as.character(set$ByModel$Signal[i]),";")
+	}))
+	invisible(lapply(seq(nrow(set$ByAll)),function(i){
+		set$ByAll$Signal[i] <<- strsplit(as.character(set$ByAll$Signal[i]),";")
+	}))
+	# Concat
+	finalSet <- rbind(set$ByModel, set$ByAll)
+	return(finalSet)
+}
+
+GO_f <- unify_filtered_data(GO_f)
+KEGG_f <- unify_filtered_data(KEGG_f)
+REAC_f <- unify_filtered_data(REAC_f)
+
+
+
+
+# Add NOT FILTERED info to networks
+meta2fitlered_format <- function(metadata, model){
+	info <- as.data.frame(do.call(rbind,lapply(seq(nrow(metadata)),function(i){
+		# Find IC
+		ic <- which(GO_f$HPO == metadata$HPO[i])
+		if(length(ic) > 0){
+			ic <- GO_f$IC[ic[1]]
+		}else{
+			ic <- NA
+		}
+
+		# Prepare info
+		df <- data.frame(Model        = model,
+						 HPO          = metadata$HPO[i],
+						 IC           = ic,
+						 SignalAmount = metadata$Terms[i],
+						 Signal       = "",
+						 stringsAsFactors = F)
+		df$Signal <- strsplit(as.character(metadata$SignalList[i]),";")
+		return(df)
+	})))
+}
+
+# Include DECIPHER data
+GO_f   <- rbind(meta2fitlered_format(meta_go[which(meta_go$Model == model_target & meta_go$Pval == pval_thr[1]),],model_target),GO_f)
+KEGG_f <- rbind(meta2fitlered_format(meta_kegg[which(meta_kegg$Model == model_target & meta_kegg$Pval == pval_thr[1]),],model_target),KEGG_f)
+REAC_f <- rbind(meta2fitlered_format(meta_reac[which(meta_reac$Model == model_target & meta_reac$Pval == pval_thr[1]),],model_target),REAC_f)
+
+
+
+
+
+# Conenctivity matrix function
+MConn_from_net <- function(net){
+	# Obtain terms and signals
+	terms   <- unique(net$HPO)
+	signals <- unique(unlist(lapply(seq(nrow(net)),function(i){net$Signal[[i]]})))
+
+	# Generate connectivity matrix
+	MConnect <- matrix(0, ncol = length(signals), nrow = length(terms))
+	colnames(MConnect) <- signals
+	rownames(MConnect) <- terms
+
+	invisible(lapply(terms, function(t){
+		# Find signals
+		tsig <- unlist(net$Signal[which(net$HPO == t)])
+		# Add link
+		MConnect[which(terms == t),which(signals %in% tsig)] <<- 1
+	}))
+
+	# Return
+	return(MConnect)
+}
+
+# Prepare Connectivity Matrixes per Source and RDM filtering type
+#filt_models <- c(model_target,rdm_models$Format,"All")
+filt_models <- c(model_target,rdm_models$Format,"All")
+MLinks <- lapply(filt_models,function(model){
+	# Obtain network
+	net_go   <- GO_f  [which(GO_f$Model   == model),]
+	net_kegg <- KEGG_f[which(KEGG_f$Model == model),]
+	net_reac <- REAC_f[which(REAC_f$Model == model),]
+
+	# Obtain Link matrixes
+	MGO   <- MConn_from_net(net_go)
+	MKEGG <- MConn_from_net(net_kegg)
+	MREAC <- MConn_from_net(net_reac)
+
+	# Return connectivity matrixes
+	return(list(GO = MGO, KEGG = MKEGG, REAC = MREAC))
+})
+
+
+
+
+# Preare useful functions
+A_per_B <- function(MLink, model, rowsAsA = TRUE, AName, BName){
+	info <- as.data.frame(do.call(rbind,lapply(seq(ifelse(rowsAsA,nrow(MLink),ncol(MLink))),function(i){
+		df <- data.frame(A     = ifelse(rowsAsA,rownames(MLink)[i],colnames(MLink)[i]),
+						 B     = ifelse(rowsAsA,sum(MLink[i,]),sum(MLink[,i])),
+						 Prc   = -1,
+						 Model = model,
+						 stringsAsFactors = F)
+		# Update info
+		df$Prc <- (df$B / ifelse(rowsAsA, ncol(MLink), nrow(MLink))) * 100
+		# Return
+		return(df)
+	})))
+	# Update names
+	colnames(info) <- c(AName,BName,"Prc","Model")
+	# Return
+	return(info)
+}
+
+
+#### SYSTEMS PER HPO
+go_per_hpo <- as.data.frame(do.call(rbind,lapply(seq_along(MLinks),function(i){
+	A_per_B(MLink   = MLinks[[i]]$GO,
+			model   = filt_models[i],
+			rowsAsA	= TRUE,
+			AName   = "Phenotype",
+			BName   = "FunSys")
+})))
+kegg_per_hpo <- as.data.frame(do.call(rbind,lapply(seq_along(MLinks),function(i){
+	A_per_B(MLink   = MLinks[[i]]$KEGG,
+			model   = filt_models[i],
+			rowsAsA	= TRUE,
+			AName   = "Phenotype",
+			BName   = "FunSys")
+})))
+reac_per_hpo <- as.data.frame(do.call(rbind,lapply(seq_along(MLinks),function(i){
+	A_per_B(MLink   = MLinks[[i]]$REAC,
+			model   = filt_models[i],
+			rowsAsA	= TRUE,
+			AName   = "Phenotype",
+			BName   = "FunSys")
+})))
+
+
+
+#### HPOs PER SYSTEM
+hpo_per_go <- as.data.frame(do.call(rbind,lapply(seq_along(MLinks),function(i){
+	A_per_B(MLink   = MLinks[[i]]$GO,
+			model   = filt_models[i],
+			rowsAsA	= FALSE,
+			AName   = "FunSys",
+			BName   = "Phenotype")
+})))
+hpo_per_kegg <- as.data.frame(do.call(rbind,lapply(seq_along(MLinks),function(i){
+	A_per_B(MLink   = MLinks[[i]]$KEGG,
+			model   = filt_models[i],
+			rowsAsA	= FALSE,
+			AName   = "FunSys",
+			BName   = "Phenotype")
+})))
+hpo_per_reac <- as.data.frame(do.call(rbind,lapply(seq_along(MLinks),function(i){
+	A_per_B(MLink   = MLinks[[i]]$REAC,
+			model   = filt_models[i],
+			rowsAsA	= FALSE,
+			AName   = "FunSys",
+			BName   = "Phenotype")
+})))
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+## **Random-Like filtering**
+Second approximation to study enrichment results consist on filter Real cohort enrichment results using Random Models generated to obtain the probability of obtain an specific Phenotype-FunSys randomly. Real cohort enrichments with a random-like probability associated are filtered applying a threshold. Original study case applied a threshold of 0.001 with a pull of 100 random models of each type, it means that all Phenotype-FunSys tuples which appear at least in one of all random models are removed from results.
+
+Using this strategy we obtain a filtered enrichments result set for each Random Model type and a new one with relationships which survive in all filters by model type, this last one is named "*All*". Obtained results are painted in graphs sets with the following structure:
+
+* **Graph 1:** boxplot graph with number of Funsys enriched per phenotype grouped by mofel type filter. Also non-filtered set (Real) is included. 
+* **Graph 2:** lines plot showing the density distribution of Phenotypes per Funsys grouped by model.
+* **Graph 3:** lines plot showing the density distribution of Funsys per Phenotypes grouped by model.
+* **Table:** following stats grouped by model: the number of different phenotypes and FunSys, the number of Phenotype-FunSys tuples, the maximum Phenotypes related to a Funsys and vice versa;
+
+Finally, obtained results after filtering are the following:
+
+```{r filtered_plots, echo = FALSE, eval = flags$filtered}
+library(gridExtra)
+get_legend<-function(myggplot){
+  tmp <- ggplot_gtable(ggplot_build(myggplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+
+
+plots_set_filtered <- function(signal,PhenPerFS,FSPerPhen,label, printTable = FALSE){
+	# Prepare data
+	invisible(lapply(seq(nrow(rdm_models)),function(i){
+		signal$Model[which(signal$Model == rdm_models$Format[i])] <<- rdm_models$ID[i]
+		PhenPerFS$Model[which(PhenPerFS$Model == rdm_models$Format[i])] <<- rdm_models$ID[i]
+		FSPerPhen$Model[which(FSPerPhen$Model == rdm_models$Format[i])] <<- rdm_models$ID[i]
+
+	}))
+	signal$Model    <- factor(signal$Model, levels = c(model_target,rdm_models$ID,"All"))
+	PhenPerFS$Model <- factor(PhenPerFS$Model, levels = c(model_target,rdm_models$ID,"All"))
+	FSPerPhen$Model <- factor(FSPerPhen$Model, levels = c(model_target,rdm_models$ID,"All"))
+
+	# Remove not allowed models
+	if(any(is.na(signal$Model))){
+		signal    <- signal[!is.na(signal$Model),]
+		PhenPerFS <- PhenPerFS[!is.na(PhenPerFS$Model),]
+		FSPerPhen <- FSPerPhen[!is.na(FSPerPhen$Model),]
+	}
+
+
+	# PLOT 1: plot of number of signals per HPO grouped by model type
+	p1 <- ggplot(signal, aes(x = Model, y = SignalAmount, fill = Model)) +
+		  labs(x = "Network after filtering by *", y = paste(label,"terms per Phenotype")) +
+		  geom_boxplot(show.legend = FALSE) +
+		  theme(axis.text.x = element_blank()) + 
+		  scale_fill_manual(values = c(model_cols,"brown3"))
+
+	# PLOT 2: frequencies histogram for HPO-FunSys
+	p2 <- ggplot(PhenPerFS, aes(x = Phenotype, y = stat(density), colour = Model)) +
+		  geom_freqpoly(binwidth = 1, show.legend = FALSE) +
+		  labs(x = paste("Phenotypes per",label,"term"), y = "Ocurrence Probability") +
+		  scale_color_manual(values = c(model_cols,"brown3")) +
+		  ylim(0,1)
+
+	# PLOT 3: frequencies histogram for FunSys-HPO
+	p3 <- ggplot(FSPerPhen, aes(x = FunSys, y = stat(density), colour = Model)) +
+		  geom_freqpoly(binwidth = 1, show.legend = TRUE) +
+		  scale_color_manual(values = c(model_cols,"brown3")) +
+		  labs(x = paste(label,"terms per Phenotype"), y = "Ocurrence Probability") +
+		  ylim(0,1)
+
+	# Obtain legend
+	legend <- get_legend(p3)
+	# Remove legend from plot
+	p3 <- p3 + theme(legend.position = "none")
+
+	# PLOT
+#	grid.arrange(p1,p2,p3,legend,nrow = 1, top = label,widths=c(1.8, 2.3, 2.3, 0.8))
+	grid.arrange(p1,p2,p3,legend,nrow = 1,widths=c(1.8, 2.3, 2.3, 0.8))
+
+	if(printTable){
+		# Obtain data
+		info <- data.frame(Model        = unique(signal$Model),
+						   Phenotypes   = as.vector(table(FSPerPhen$Model)[unique(signal$Model)]),
+						   FunSys       = as.vector(table(PhenPerFS$Model)[unique(signal$Model)]),
+						   Relations    = unlist(lapply(unique(signal$Model),function(mod){sum(signal$SignalAmount[which(signal$Model == mod)])})),
+						   MaxPhenPerFS = unlist(lapply(unique(signal$Model),function(mod){max(PhenPerFS$Phenotype[which(PhenPerFS$Model == mod)])})),
+						   MaxFSPerPhen = unlist(lapply(unique(signal$Model),function(mod){max(FSPerPhen$FunSys[which(FSPerPhen$Model == mod)])})),
+						   MinPhenPerFS = unlist(lapply(unique(signal$Model),function(mod){min(PhenPerFS$Phenotype[which(PhenPerFS$Model == mod)])})),
+						   MinFSPerPhen = unlist(lapply(unique(signal$Model),function(mod){min(FSPerPhen$FunSys[which(FSPerPhen$Model == mod)])})),
+						   MeanPhenPerFS = unlist(lapply(unique(signal$Model),function(mod){mean(PhenPerFS$Phenotype[which(PhenPerFS$Model == mod)])})),
+						   MeanFSPerPhen = unlist(lapply(unique(signal$Model),function(mod){mean(FSPerPhen$FunSys[which(FSPerPhen$Model == mod)])})),
+						   TopMaxPhFS   = unlist(lapply(unique(signal$Model),function(mod){tmp <- PhenPerFS[which(PhenPerFS$Model == mod),]; tmp <- tmp[order(-tmp$Phenotype),]; return(paste(tmp$FunSys[1:5],collapse = ","))})),
+						   TopMaxFSPh   = unlist(lapply(unique(signal$Model),function(mod){tmp <- FSPerPhen[which(FSPerPhen$Model == mod),]; tmp <- tmp[order(-tmp$FunSys),]; return(paste(tmp$Phenotype[1:5],collapse = ","))})),
+						   stringsAsFactors = F)
+		return(info)
+	} 
+}
+
+# Generate plots
+plots_set_filtered(GO_f,hpo_per_go,go_per_hpo,"GO", printTable = TRUE)
+plots_set_filtered(KEGG_f,hpo_per_kegg,kegg_per_hpo,"KEGG", printTable = TRUE)
+plots_set_filtered(REAC_f,hpo_per_reac,reac_per_hpo,"REACT", printTable = TRUE)
+# message("GO Signal")
+# GO_f[order(GO_f$Model,-GO_f$SignalAmount),]
+# message("Phenotypes per GO term")
+# hpo_per_go[order(hpo_per_go$Model,-hpo_per_go$Phenotype),]
+# message("Go terms per Phenotype")
+# go_per_hpo[order(go_per_hpo$Model,-go_per_hpo$FunSys),]
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r ics, echo = FALSE, eval = flags$ics}
+##################################################
+##                     ICs                      ##
+##################################################
+
+# Load GO ICs
+go_genes <- data[['ures_go_dict']]
+colnames(go_genes) <- c("GO","IC","Name")
+
+# # Load GO-Genes relationships
+# genes2go <- as.list(org.Hs.egGO[mappedkeys(org.Hs.egGO)])
+# # Obtain number of genes linked to each GO
+# go_genes <- table(unlist(lapply(genes2go,function(item){return(names(item))})))
+# go_genes <- data.frame(GO = names(go_genes), Genes = as.vector(go_genes), stringsAsFactors= F)
+# # Add ICs
+# go_genes$IC <- -log(go_genes$Genes / max(go_genes$Genes))
+
+
+
+# Take only wanted genes
+go_genes <- go_genes[which(go_genes$GO %in% unique(unlist(lapply(meta_go$SignalList,function(l){unlist(l)})))),]
+
+
+# Transform to HPO-GO format
+aux_ratios <- ratios[which(ratios$Signal_type == "GO", ratios$Pval_thr == 1e-03),]
+GO_f_aux <- GO_f[-which(GO_f$Model == model_target),]
+GO_f_tuples <- as.data.frame(do.call(rbind, lapply(seq(nrow(GO_f_aux)),function(i){
+	tuples <- as.data.frame(do.call(rbind,lapply(unlist(GO_f_aux$Signal[i]),function(sig){
+		# Find GO ICs
+		ic <- which(go_genes$GO == sig)
+		if(length(ic) > 0){
+			ic <- go_genes$IC[ic[1]]
+		}else{
+			ic <- NA
+		}
+		# Find ratio if it's possible
+		if(GO_f_aux$Model[i] %in% rdm_models$Format){
+			model_n <- rdm_models$Name[which(rdm_models$Format == GO_f_aux$Model[i])]
+			model <- rdm_models$ID[which(rdm_models$Format == GO_f_aux$Model[i])]
+			# Find ratio
+			ratio <- aux_ratios$Ratio[which(aux_ratios$HPO == GO_f_aux$HPO[i] & aux_ratios$RDM_type == model_n)[1]]
+			if(is.na(ratio)){
+				ratiot <- NA
+			}else{
+				ratiot <- ifelse(ratio <= 0, "Negative-Ratio", "Positive-Ratio")
+			}
+		}else{
+			model <- GO_f_aux$Model[i]
+			# Ratio is not available
+			ratio  <- NA
+			ratiot <- NA 
+		}
+		# Return info
+		return(data.frame(Model  = model,
+						  HPO    = GO_f_aux$HPO[i],
+						  GO     = sig,
+						  Ratio  = ratio,
+						  RatioT = ratiot,
+						  IC_HPO = GO_f_aux$IC[i],
+						  IC_GO  = ic,
+						  stringsAsFactors = T))
+	})))
+	return(tuples)
+})))
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+## **IC plots**
+Once filtered results are available, we can study the quality of our results using the Index of Content (IC) measure, commonly used to identify the specificity of a term in semantic studies. In our case, it is not a semantic study but our terms are from semantic structures, for that reason we can apply IC feature to study the specificity of our enriched FunSys and our survival phenotypes.
+
+A common IC formula used by community is: $$IC(Term_i) = -\log{\frac{frequency(Term_i)}{max(frequency(Term_*))}}$$
+
+Attending to this formula, PhenFun use the following strategy to calculate the frequency assigned to each term:
+
+* **Phenotype terms:** frequency of phenotype terms are obtained directly from the observed frequency in the Real cohort patients. With this strategy, ontological specific terms can be general if the cohort corresponds to a well described diseases cohort, making low frequent phenotypes in the cohorot more relevant.
+* **Functional System terms:** frequency assigned to FunSys terms are the number of genes related to the term in the refrence genome used. Whith this strategy, FunSys that can be reached easily (more genes) will be more general.
+
+Once frequencies have been calculated for all phenotypes and FunSys terms from the filtered results, a set of two graphs is plotted per each filtering type:
+
+* **Graph 1:** a boxplot with the IC calculated per each term, grouped by term type (Phentoype or FunSys) and coloured by Ratio class (lower than zero or not).
+* **Graph 2:** an IC(Phenotype) agains IC(FunSys) terms scatterplot with a point per each Phenotype-FunSys into filtered result. Coloured with the same criteria than Graph 1 . 
+
+**Warning:** model *All* should has not colours because this filtered model can not have a comparisson ratio assigned by concept. This report coloured it using the first random model type as refernce to assign ratio values, but **it is an artifact**. 
+
+Finally IC results obtained per filtered type are:
+
+```{r ic_general_plots, echo = FALSE, eval = flags$ics}
+# Transform GO_f_tuples
+df_ics <- as.data.frame(do.call(rbind,lapply(seq(nrow(GO_f_tuples)), function(i){
+	if(is.na(GO_f_tuples$RatioT[i])){
+		ratiot <- GO_f_tuples$RatioT[which(GO_f_tuples$HPO == GO_f_tuples$HPO[i] & GO_f_tuples$Model == rdm_models$ID[1])[1]]
+	}else{
+		ratiot <- GO_f_tuples$RatioT[i]
+	}
+	# Per each line, extract info
+	return(data.frame(IC    = c(GO_f_tuples$IC_HPO[i],GO_f_tuples$IC_GO[i]),
+					  Model = rep(GO_f_tuples$Model[i],2),
+					  Term  = c(GO_f_tuples$HPO[i],GO_f_tuples$GO[i]),
+					  Type  = c("HPO","GO"),
+					  Ratio = rep(ratiot,2),
+					  stringsAsFactors = T))
+})))
+#df_ics$Model <- factor(df_ics$Model, level = c(model_types,"All"))
+df_ics$Ratio <- factor(df_ics$Ratio, level = c("Positive-Ratio","Negative-Ratio"))
+GO_f_tuples$RatioT <- factor(GO_f_tuples$RatioT, level = c("Positive-Ratio","Negative-Ratio"))
+
+
+
+# Obtain GRAPH 1: boxplots of IC grouped by term type and ratio type
+ic_cols <- c("darkGreen","darkOrange")
+gen_ic_plots <- lapply(unique(df_ics$Model),function(mdl){
+	pp <- ggplot(df_ics[which(df_ics$Model == mdl),],aes(x = Type, y = IC, fill = Ratio)) +
+		  geom_boxplot(na.rm = TRUE) +
+		  ylim(0,max(df_ics$IC)) +
+		  scale_fill_manual(values = ic_cols) +
+		  labs(x = "IC Type", y = paste("IC [Filtered by ",mdl,"]",sep = ""))
+	return(pp)
+})
+
+# # Obtain legend
+legend_ic <- get_legend(gen_ic_plots[[1]])
+# # Remove legend from plot
+invisible(lapply(seq(gen_ic_plots),function(i){
+	gen_ic_plots[[i]] <<- gen_ic_plots[[i]] + theme(legend.position = "none")
+}))
+
+
+
+# Obtain GRAPH 2: scatterplot of IC(HPO)-IC(FunSys) per each filtered result tuples
+rdm_ic_plots <- lapply(unique(GO_f_tuples$Model),function(rdm){
+	if(rdm == "All"){
+		pp <- ggplot(GO_f_tuples[which(GO_f_tuples$Model == rdm & !is.na(GO_f_tuples$IC_GO)),], aes(x = IC_HPO, y = IC_GO)) +
+			  geom_point(alpha = 0.2) +
+			  labs(x = "IC(HPO)", y = paste("IC(GO) [Filtered by ",rdm,"]",sep=""))		
+	}else if(rdm %in% rdm_models$ID){
+		pp <- ggplot(GO_f_tuples[which(GO_f_tuples$Model == rdm & !is.na(GO_f_tuples$IC_GO)),], aes(x = IC_HPO, y = IC_GO, colour = RatioT)) +
+			  geom_point(show.legend = TRUE, alpha = 0.2) +
+		  	  scale_color_manual(values = ic_cols, name = "Ratio") +
+		  	  labs(x = "IC(HPO)", y = paste("IC(GO) [Filter: ",rdm,"]",sep=""))		
+	}else{
+		pp <- ggplot(GO_f_tuples[which(GO_f_tuples$Model == rdm & !is.na(GO_f_tuples$IC_GO)),], aes(x = IC_HPO, y = IC_GO)) +
+			  geom_point(alpha = 0.2) +
+			  labs(x = "IC(HPO)", y = paste("IC(GO) [Filtered by ",rdm,"]",sep=""))	
+	}
+	
+	# pp <- ggExtra::ggMarginal(pp, type = "histogram")
+
+	return(pp)
+})
+# Obtain legend
+# legend_ic2 <- get_legend(rdm_ic_plots[[1]])
+# Remove legend from plot
+invisible(lapply(seq(rdm_ic_plots),function(i){
+	rdm_ic_plots[[i]] <<- rdm_ic_plots[[i]] + theme(legend.position = "none")
+}))
+
+
+# # Plot graphs per each filter type
+invisible(lapply(seq_along(gen_ic_plots), function(i){
+	# Plot set
+	grid.arrange(gen_ic_plots[[i]], ggExtra::ggMarginal(rdm_ic_plots[[i]], type = "density", fill = "grey"), legend_ic, nrow = 1, widths = c(3.6,3.6,0.8))
+#	grid.arrange(gen_ic_plots[[i]], rdm_ic_plots[[i]], nrow = 1)
+}))
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+
+```{r ic_plots, echo = FALSE, eval = FALSE}
+# grid.arrange(gen_ic_plots[[1]], gen_ic_plots[[2]], gen_ic_plots[[3]], legend, nrow = 1, widths = c(2.3,2.3,2.3,0.8))
+
+
+# # Prepare plots per random model
+# #rdm_ic_plots <- lapply(rdm_models$Name,function(rdm){
+# rdm_ic_plots <- lapply(rdm_models$ID,function(rdm){
+# 	# PLOT IC against IC
+# 	pp <- ggplot(GO_f_tuples[which(GO_f_tuples$Model == rdm & !is.na(GO_f_tuples$IC_GO)),], aes(x = IC_HPO, y = IC_GO, colour = RatioT)) +
+# 		  geom_point(show.legend = TRUE) +
+# #		  scale_fill_manual(values = c("darkGreen","darkOrange")) +
+# 		  scale_color_manual(values = c("darkGreen","darkOrange"), name = "Ratio") +
+# 		  xlim(0,7.5) +
+# #		  ylim(0,10) +
+# 		  labs(x = "IC(HPO)", y = paste("IC(GO) [Model: ",rdm,"]",sep=""))		  		 
+# 	return(pp)
+# })
+# # Obtain legend
+# legend_ic <- get_legend(rdm_ic_plots[[1]])
+# # Remove legend from plot
+# invisible(lapply(seq(rdm_ic_plots),function(i){
+# 	rdm_ic_plots[[i]] <<- rdm_ic_plots[[i]] + theme(legend.position = "none")
+# }))
+
+# grid.arrange(rdm_ic_plots[[1]],rdm_ic_plots[[2]],rdm_ic_plots[[3]], legend_ic, nrow = 1, widths=c(2.3, 2.3, 2.3, 0.8))
+
+# pp <- ggplot(GO_f_tuples[which(GO_f_tuples$Model == "All" & !is.na(GO_f_tuples$IC_GO)),], aes(x = IC_HPO, y = IC_GO)) +
+# 	  geom_point() +
+# 	  xlim(0,7.5) +
+# #	  ylim(0,10) +
+# 	  labs(x = "IC(HPO)", y = "IC(GO); Ratios: All")
+# plot(pp)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## **Patients' plots**
+Once all results have been filtered, we can infer Patient-FunSys relations using Patient-Phenotype relations and comparing affected patient genes with which have been used to enrich final relations.
+
+All information generated can be used to obtain the following metadata:
+
+* **Phenotypes:** number of different phenotypes annotated for a patient.
+* **Significant Phenotypes:** number of phenotypes annotated whith any FunSys linked in the final results set.
+* **Patient Phenotype profile IC:** mean patient phenotype profile IC.
+* **Affected genes:** number of genes affected by a mutation into Patient genotypic profile.
+* **Significant genes:** number of affected genes which have been used to enrich a Phenotype-FunSys relation of a phenotype annotated on the affected patient.
+* **Inferred FunSys:** number of FunSys that can be related to a patient by it annotated phenotypes and significant genes.
+* **Linkable phenotypes:** number of Significant phenotypes whith any result taht can be linked to a patient using patient significant genes.
+* **Phenotype profile coverage:** percentage of patient phenotypes whit any inferred FunSys for the specific patient.
+
+**warning:** following plots only contains GO information on this report version.
+
+With all this metadata calculated, we start checking the relation between the affected patient genes and the percentage of these which are being used to enrich FunSys into annotated patient phenome:
+
+```{r patients, echo = FALSE, eval = flags$patients}
+##################################################
+##                   PATIENTS                   ##
+##################################################
+patients_results  <- data[['patients_go_results']]
+patients_triplets <- data[['patients_go_triplets']]
+
+
+# Patients general text
+
+
+
+# patients_results
+# patients_triplets
+
+
+# Plot 1: genes significative distribution
+pp <- ggplot(patients_results[-which(is.na(patients_results$PercSigGenes)),], aes(x = Genes, y = PercSigGenes)) +
+      geom_point(alpha = 0.2, na.rm = TRUE) +
+      labs(x = "Annotated genes into patient", y = "Genes enriching linkable FunSys (%)")
+#      ggtitle(paste("Percentage of significative genes per amount of genes mutated (Patients = ",length(which(!is.na(patients_results$PercSigGenes))),")",sep = ""))
+
+plot(pp)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+The number of **patients into this cohort** are `r length(source_pats)` of which are **taken into account** `r length(unique(patients_results$Patient))`
+
+
+Now, we compare the number of patient phenotypes whith any linked FunSys in the final results set (X-axis) and the number of them which have any FunSys which can be linked to the patient by the affected genes (Y-axis):
+
+```{r patients2, echo = FALSE, eval = flags$patients}
+
+#####
+# Plot 2: relationship between significative phenos (included into our results) and linkable phenos (any results is obtained using the patient's genes)
+pp <- ggplot(patients_results, aes(x = SigPhenos, y = LinkablePhenos)) +
+      geom_point(alpha = 0.2, na.rm = TRUE) +
+      geom_abline(intercept = 0, slope = 1) +
+      labs(x = "Phenotypes with any linked FunSys (into final set) per patient", y = "Phenotypes with patient genes enriching FunSys") +
+      ylim(0,max(patients_results$SigPhenos)) +
+      xlim(0,max(patients_results$SigPhenos)) 
+#      ggtitle("Phenos with significative results against patient's phenos with linkable systems by our results")
+plot(pp)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+With the inferred FunSys  over the patient we can plot the number of FunSys affected on the patient organism (X-axis) against the mean of phenotypes which are overlapping over these FunSys (Y-axis): 
+```{r patients3, echo = FALSE, eval = flags$patients}
+####
+# Plot 3: number of mean(HPOsPerSystem) per system amount
+pp <- ggplot(patients_results, aes(x = SystemsUnique, y = PhenosPerSys)) +
+	  geom_point(alpha = 0.2, na.rm = TRUE) +
+	  ylim(0,8) +
+	  labs(x = "Patient affected FunSys (linked by Patient Phen.profile)", y = "Mean FunSys per Phenotype linked to patient") +
+	  geom_hline(yintercept = 1, linetype = "dashed", color = "gray")
+plot(pp)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+With the coverage value for patient phenomes and the mean IC assigned to each phenome we can be a general view of this features along our population. We plot the coverage ratio per patient sorted on percentiles and mean percentile patients phenome IC is plotted using a color scale: 
+```{r patients4, echo = FALSE, eval = flags$patients}
+# Data for plot 5
+patients_results$PercLinkPhenos <- patients_results$LinkablePhenos / patients_results$SigPhenos # Prepare Coverage
+to_plot <- patients_results                                         # Make a copy
+to_plot$PercResPhenos <- to_plot$LinkablePhenos / to_plot$Phenos    # Prepare PCoverage feature
+to_plot <- to_plot[order(to_plot$PercResPhenos),]                   # Sort by coverage (ascending order)
+# to_plot <- to_plot[order(to_plot$PercLinkPhenos),]                   # Sort by coverage (ascending order)
+# to_plot <- to_plot[-which(is.na(to_plot$PercLinkPhenos)),]                   # Remove NAs
+
+# Calculate percentile info 
+granurality <- 0.05
+folds <- seq(1,nrow(to_plot),round(nrow(to_plot)*granurality))
+to_plot$Fold <- rep(0, nrow(to_plot))
+to_plot2 <- as.data.frame(do.call(rbind,lapply(seq_along(folds),function(i){
+	if(i == 1){
+		return(NULL)
+	}
+	ics <- to_plot$ProfMeanIC[(folds[i-1]+1):folds[i]]
+	cov <- to_plot$PercResPhenos[(folds[i-1]+1):folds[i]]
+	# cov <- to_plot$PercLinkPhenos[(folds[i-1]+1):folds[i]]
+	to_plot$Fold[(folds[i-1]+1):folds[i]] <<- (i-1)*granurality*100
+	return(data.frame(Fold       = i,
+					  Percentile = (i-1)*granurality*100,
+					  From       = folds[i-1]+1,
+					  To         = folds[i],
+					  Max_Cov    = max(cov),
+					  Min_Cov    = min(cov),
+					  Mean_Cov   = mean(cov),
+					  MeanIC     = mean(ics)))
+})))
+
+####
+# Plot 4: % of explanable phenotypes and % population
+pp <- ggplot(to_plot2, aes(x = Percentile, y = Mean_Cov, colour = MeanIC)) +
+	  geom_point() +
+	  ylim(0,1) +
+	  scale_color_continuous(low = "orange", high = "blue", breaks = c(0:max(patients_results$ProfMeanIC)), name = "Mean Phenome IC") +
+	  labs(x = "Patients population Percentile (sort by Y-axis)", y = "% Phenome with any FunSys linkable to patient")
+plot(pp)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+This profiles can be also studied loking at the relation between the number of Patient Phenotypes and the mean patient phenome IC:
+```{r patients5, echo = FALSE, eval = flags$patients}
+
+
+####
+# Plot 5: Same but with extra info as colour
+
+pp <- ggplot(to_plot,aes(x = Phenos, y = ProfMeanIC, colour = PercLinkPhenos)) +
+		geom_point(alpha = 0.4) +
+		scale_color_continuous(low = "orange", high = "blue", breaks = c(0:1), name = "% Phenotype with FunSys linkable") +
+		labs(x = "Patient Phenotype profile size", y = "Mean Patient Phenotype profile IC")
+plot(pp)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+A special vision of Phenotypes results can be studied adding new information after infer results over patients. This new information are:
+
+* **Patients:** with this phenotype annotated and which can be linked to a FunSys by this phenotype.
+* **Combinations:** number of different Patient-FunSys relations generated after infer results over patients.
+
+All this information are shown per each phenotype sorted by number of FunSys linked:
+
+```{r patients6, echo = FALSE, eval = flags$patients}
+# Add Current info
+# patients_results[,-ncol(patients_results)]
+
+##################################################
+##                   PATIENTS 2                 ##
+##################################################
+
+# Transform triplets to <HPO, NumPatients, NumCombPatSys>
+pats_phenos <- as.data.frame(do.call(rbind, lapply(unique(patients_triplets$Pheno),function(pheno){
+	aux <- patients_triplets[which(patients_triplets$Pheno == pheno),]
+	# Per each Patient
+	info <- table(unlist(lapply(unique(aux$Patient), function(pat){
+		# Find patient combination
+		sys <- unique(aux$FunSys[which(aux$Patient == pat)])
+		# Sort
+		sys <- sort(sys)
+		# Collapse & return
+		return(paste(sys,collapse = ";"))
+	})))
+	# Find Ratio
+	ratio <- which(ratios$HPO == pheno & 
+				   ratios$RDM_type == rdm_models$Name[which(rdm_models$ID == "PhenSOR")] &
+				   ratios$Pval_thr == 1e-03)
+	if(length(ratio) == 0){
+		ratio <- NA
+	}else{
+		ratio <- ratios$Ratio[ratio[1]]
+	}
+	# Find IC(HPO) and IC(GO)
+	indx <- which(GO_f_tuples$Model == "PhenSOR" & GO_f_tuples$HPO == pheno)
+	if(length(indx) == 0){
+		# Cannot find anything
+		p_ic <- -1
+		g_ic <- -1
+	}else{
+		# Take IC(HPO)
+		p_ic = GO_f_tuples$IC_HPO[indx[1]]
+		# Take mean(IC(GO))
+		g_ic <- mean(GO_f_tuples$IC_GO[indx],na.rm = TRUE)
+	}
+
+
+	return(data.frame(Phenotype = rep(pheno,6),
+					  Value     = c(length(unique(aux$FunSys)),
+					  				length(unique(aux$Patient)),
+					  				length(info),
+					  				ratio,
+					  				p_ic,
+					  				g_ic),
+					  Type      = c("FunSys", "Patients", "Combinations","Ratio","IC_HPO","Mean_IC_GO"),
+					  stringsAsFactors = F))
+})))
+pats_phenos$Type <- factor(pats_phenos$Type, levels = c("FunSys","Patients","Combinations","Ratio","IC_HPO","Mean_IC_GO"))
+#pats_phenos <- pats_phenos[which(pats_phenos$Type %in% c("FunSys","Patients","Combinations","Ratio","IC_HPO")),]
+pats_phenos <- pats_phenos[order(pats_phenos$Type,pats_phenos$Value),]
+pats_phenos$Phenotype <- factor(pats_phenos$Phenotype, levels = unique(pats_phenos$Phenotype))
+
+# Plot
+pp <- ggplot(pats_phenos, aes(x = Phenotype, y = Value, group = Type)) +
+	  theme(axis.text.x=element_blank()) +
+	  geom_line(aes(colour = Type)) +
+	  geom_hline(yintercept = 0, color = "black")
+plot(pp)
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+
+
+
+
+Finally, the realtion between the number of FunSys related to a Phenotype and the number of differente combinations (Patient-FunSys after infer results) generated per Phenotype are compared adding an extra information about the Ratio class assigned based on `r rdm_models$ID[1]` random model type:
+```{r patients7, echo = FALSE, eval = flags$patients}
+# Unify per Phenotype and add Ratio (from rdm_l ratio)
+pats_phenos_2 <- as.data.frame(do.call(rbind, lapply(levels(pats_phenos$Phenotype),function(pheno){
+	# Find entries
+	indx <- which(pats_phenos$Phenotype == pheno)
+	# Find ratio
+	ratio <- which(ratios$HPO == pheno & 
+				   ratios$RDM_type == rdm_models$Name[which(rdm_models$ID == "PhenSOR")] &
+				   ratios$Pval_thr == 1e-03)
+	# CHeck
+	if(length(ratio) == 0){
+		ratio <- NA
+		ratioV <- NA
+	}else{
+		ratio <- ifelse(ratios$Ratio[ratio[1]] <= 0, "Negative-Ratio", "Positive-Ratio")
+		ratioV <- ratios$Ratio[ratio[1]]
+	}
+	# Return info
+	return(data.frame(Phenotype  = pheno, 
+					  NumSys     = pats_phenos$Value[indx[which(pats_phenos$Type[indx] == "FunSys")]],
+					  Combs      = pats_phenos$Value[indx[which(pats_phenos$Type[indx] == "Combinations")]],
+					  Ratio      = ratio,
+					  RatioValue = ratioV,
+					  stringsAsFactors = T))
+})))
+
+# pats_phenos
+# pats_phenos_2
+
+# Plot
+pp <- ggplot(pats_phenos_2, aes(x = NumSys, y = Combs, colour = Ratio)) +
+	  scale_colour_manual(values = rev(ic_cols)) +
+	  labs(x = "GO terms related to a Phenotype", y = "GO-Patient tuples generated by phenotype") +
+	  geom_point(alpha = 0.2)
+plot(pp)
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+```
+
+
+```{r paper_triplet_plot, echo = FALSE, eval = flags$patients_triplet}
+# Complex graph for paper
+
+# Update
+indx <- which(df_ics$Ratio == "HighRatio")
+df_ics$Ratio[indx] <- "Positive-Ratio"
+df_ics$Ratio[-indx] <- "Negative-Ratio"
+
+# Plot 1: ICs plot boxplots for GO and HPOs using PhenSOR as reference
+# pp1 <- ggplot(df_ics[which(df_ics$Model == "All"),],aes(x = Type, y = IC, fill = Ratio)) +
+# 	   geom_boxplot(na.rm = TRUE) +
+# 	   ylim(0, max(df_ics$IC[which(df_ics$Model == "All")])) +
+# 	   scale_fill_manual(values = ic_cols, name = "Ratio") +
+# 	   labs(x = "IC Type", y = "IC Value")
+pp1 <- gen_ic_plots[[length(gen_ic_plots)]]
+
+
+# legend_ic <- get_legend(pp1)
+# pp1 <- pp1 + theme(legend.position = "none")
+
+# Plot 2: IC(HPO) agains IC(GO) using All filters
+# pp2 <- ggplot(GO_f_tuples[which(GO_f_tuples$Model == "All" & !is.na(GO_f_tuples$IC_GO)),], aes(x = IC_HPO, y = IC_GO)) +
+# 	  geom_point(na.rm = TRUE) +
+# 	  xlim(0,7.5) +
+# 	  ylim(0,10) +
+# 	  labs(x = "Phenotype IC", y = "GO term IC")
+pp2 <- rdm_ic_plots[[length(rdm_ic_plots)]]
+
+
+# Plot 3: Per each HPO, number of linked FunSys to different Patient-GO combinations linked
+pp3 <- ggplot(pats_phenos_2, aes(x = NumSys, y = Combs, colour = Ratio)) +
+	  scale_colour_manual(values = rev(ic_cols), name = "Ratio") +
+	  labs(x = "GO terms related to a Phenotype", y = "GO-Patient tuples generated by phenotype") +
+	  geom_point(alpha = 0.2)
+
+legend_pats <- get_legend(pp3)
+pp3 <- pp3 + theme(legend.position = "none")
+
+
+
+# Plot
+grid.arrange(legend_ic,pp1,pp2, nrow = 1, widths=c(0.8,2.3,2.3))
+grid.arrange(legend_pats,pp3, ncol = 2, widths=c(0.8,4.6))
+```

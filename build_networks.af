@@ -1,0 +1,128 @@
+# @author Pedro Seoane Zonjic, Fernando Moreno Jabato
+
+generate_tripartite_network){
+	module load ruby/2.4.1
+	source ~soft_bio_267/initializes/init_pets
+	node_character='A'   # A = All, D = duplications, d = deletions
+	NUMBER=1 # Number of files to divide tripartite network output
+	conn_filter=2  # At least two patients must validate the tuple <Hpo,Pheno>
+	echo -e "HP:0000001\nHP:0000118" > list_of_hpo_to_exclude.txt
+	# Generate networks
+	?
+	get_network_nodes.rb -p $hpo_ontology -e list_of_hpo_to_exclude.txt -i $patients_file -m $node_character -o tripartite_network.txt -c cluster_coords_not_enriched.txt -r 'none'
+	get_network_nodes.rb -p $hpo_ontology -e list_of_hpo_to_exclude.txt -i $patients_file -m $node_character -o tripartite_network_enriched.txt -c cluster_coords_enriched.txt -r 'root'
+	rm cluster_coords.txt
+	if $hpo_enrichment; then
+		# Always do the not enriched
+		merge_pairs.rb -i tripartite_network.txt -k 'HP:' -o "fr_notE_" -n $NUMBER -m $conn_filter
+		# Enriched
+		merge_pairs.rb -i tripartite_network_enriched.txt -k 'HP:' -o "fr_" -n $NUMBER -m $conn_filter
+		ln -s cluster_coords_enriched.txt cluster_coords.txt
+	else
+		merge_pairs.rb -i tripartite_network.txt -k 'HP:' -o "fr_" -n $NUMBER -m $conn_filter
+		# Special case, always do not enriched
+		cp fr_1.txt fr_notE_1.txt
+		ln -s cluster_coords_not_enriched.txt cluster_coords.txt
+	fi
+	# Prepare target net
+	cut -f 1,2 fr_1.txt | sort -u > net.txt 
+	cut -f 2,3 fr_1.txt | sort -u >> net.txt 
+	cut -f 1,3 fr_1.txt | sort -u > reference_relations.txt
+	# Prepare NOT ENRICHED net
+	cut -f 1,2 fr_notE_1.txt | sort -u > net_notE.txt 
+	cut -f 2,3 fr_notE_1.txt | sort -u >> net_notE.txt 
+
+}
+
+
+build_main_network){
+	source ~soft_bio_267/initializes/init_netanalyzer
+	source ~soft_bio_267/initializes/init_pets
+	LAYERS='hpo,HP;regions,\.;patients,[0-9]'
+	?
+	NetAnalyzer.rb -i generate_tripartite_network)/net.txt -l $LAYERS -m hypergeometric -u 'hpo,regions;patients' -a loci2phen_raw.txt -N
+	grep -F -f generate_tripartite_network)/reference_relations.txt loci2phen_raw.txt > loci2phen.txt
+	merge_by_cluster.rb -c generate_tripartite_network)/cluster_coords.txt -n loci2phen.txt > loci2phen_coords.txt
+	awk '{if(($5 + 0) >= $association_thresold) print $0}' loci2phen_coords.txt > loci2phen_coords_filtered.txt 
+	awk '{print $4 "\t" $1 "\t" $2 "\t" $3}' loci2phen_coords_filtered.txt > phen2coords_filtered_sort.txt
+	get_genes_from_gff.rb -c phen2coords_filtered_sort.txt -g $genome_annotation > phen2gene
+	awk '{print $6 "\t" $1 "\t" $2 "\t" $3}' loci2phen_coords_filtered.txt  > loci2coords_filtered_sort.txt
+	get_genes_from_gff.rb -c loci2coords_filtered_sort.txt -g $genome_annotation > loci2gene
+}
+
+
+generate_random_models_[nodes]){
+	#initialize R
+	source ~soft_bio_267/initializes/init_R
+	#Next line for Randomize HPO-Loci
+	awk '{print $6 "\t" $4}' build_main_network)/loci2phen_coords_filtered.txt > loci2hpo
+	# Next lines for Randomize HPO-Gene
+	awk '{print $2 "\t" $1}' build_main_network)/phen2gene > gene2hpo
+	# Prepare containers
+	mkdir temp_files
+	mkdir rdm_locis
+	mkdir rdm_genes
+	for i in {1..$number_of_random_models}
+	do
+	?
+		# Randomize Loci-HPO
+		randomize_network.R -n loci2hpo -o temp_files/random_locis_$i -r (*)
+		merge_locis_hpos_genes.R -n temp_files/random_locis_$i -l build_main_network)/loci2gene -o rdm_locis/rdm_l_$i
+		# Randomize HPO-Gene
+        randomize_network.R -n gene2hpo -o temp_files/rdm_genes_$i -r (*)
+        awk '{print $2 "\t" $1}' temp_files/rdm_genes_$i > rdm_genes/rdm_g_$i
+	done 
+}
+
+generate_rdm_virtual_models){
+	#initialize R and Ruby
+	source ~soft_bio_267/initializes/init_R
+	source ~soft_bio_267/initializes/init_netanalyzer
+	# Obtain necessary file
+	get_genes_from_gff.rb -c build_main_network)/phen2coords_filtered_sort.txt -g $genome_annotation -l > genome_sizes
+	awk '{print $6 "\t" $4}' build_main_network)/loci2phen_coords_filtered.txt > loci2hpo
+	# Create container files
+	mkdir rdm_vlocis
+	mkdir rdm_vlocis_coords
+	for i in {1..$number_of_random_models}
+	do
+	?
+		# Randomize locis virtually
+		generate_virtual_locis.R -l build_main_network)/loci2phen_coords_filtered.txt -g genome_sizes -o 'rdm_vlocis_coords/loci2phen_vl_'$i'_coords_filtered'
+		# Obtain HPO-Coords and annotate genes
+		awk '{print $4 "\t" $1 "\t" $2 "\t" $3}' 'rdm_vlocis_coords/loci2phen_vl_'$i'_coords_filtered' > 'rdm_vlocis_coords/phen2coords_vl_'$i'_filtered_sort'
+		get_genes_from_gff.rb -c 'rdm_vlocis_coords/phen2coords_vl_'$i'_filtered_sort' -g $genome_annotation > 'rdm_vlocis/rdm_vl_'$i
+		# Obtain Loci-Coords and annotate genes
+		awk '{print $6 "\t" $1 "\t" $2 "\t" $3}' 'rdm_vlocis_coords/loci2phen_vl_'$i'_coords_filtered' > 'rdm_vlocis_coords/loci2coords_vl_'$i'_filtered_sort'
+		get_genes_from_gff.rb -c 'rdm_vlocis_coords/loci2coords_vl_'$i'_filtered_sort' -g $genome_annotation > 'rdm_vlocis_coords/loci2gene_vl_'$i
+	done 
+}
+
+reconstruct_full_network){
+	#initialize R
+	source ~soft_bio_267/initializes/init_R
+	mkdir rdm_3layers_networks
+    for i in {1..$number_of_random_models}
+	do
+	?
+		# Reconstruct RDM_Locis
+		merge_locis_hpos_genes.R -n generate_random_models_nodes)/temp_files/random_locis_$i -l build_main_network)/loci2gene -o rdm_3layers_networks/rdm_l_$i -r -t rdm_l_$i
+		# Reconstruct RDM_Virtual_Locis
+		merge_locis_hpos_genes.R -n generate_rdm_virtual_models)/loci2hpo -l generate_rdm_virtual_models)/rdm_vlocis_coords/loci2gene_vl_$i -o 'rdm_3layers_networks/rdm_vl_'$i'.txt' -r -t rdm_vl_$i
+		awk '{print $1 "\t" $2 "\tv." $3 "\t" $4}' 'rdm_3layers_networks/rdm_vl_'$i'.txt' > rdm_3layers_networks/rdm_vl_$i
+		rm rdm_3layers_networks/rdm_vl_$i.txt
+	done
+	# Reconstruct DECIPHER
+    merge_locis_hpos_genes.R -n generate_random_models_nodes)/loci2hpo -l build_main_network)/loci2gene -o rdm_3layers_networks/dec -r -t dec
+}
+
+collect_all_networks){
+	rm -rf working_networks
+	mkdir working_networks
+	?
+	ln -s build_main_network)/phen2gene working_networks/dec
+	ln -s generate_random_models_nodes)/rdm_locis/* working_networks
+	ln -s generate_random_models_nodes)/rdm_genes/* working_networks
+	ln -s generate_rdm_virtual_models)/rdm_vlocis/* working_networks
+	# ln -s $official_hpo working_networks/hpo
+}
