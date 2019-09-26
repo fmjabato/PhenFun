@@ -9,8 +9,8 @@ export PATH=$currDir'/scripts':$PATH
 
 
 # SELECT NETWORK
-networks_source=$SCRATCH/build_networks/ln_0000/working_networks
-mkdir $SCRATCH'/analysed_networks'
+networks_source=$SCRATCH/build_Networks/ln_0000/working_networks
+mkdir $SCRATCH'/analysed_Networks'
 ls $networks_source > working_nets
 
 
@@ -22,7 +22,7 @@ do
 		\\$clprof_enrichments=kegg:reactome,
 		\\$pval_thresold=0.001
 	" | tr -d [:space:]`
-	AutoFlow -w analyse_networks.af -o $SCRATCH'/analysed_networks/'$NETWORK -V $variables $1 -m 2gb -t '7-00:00:00'
+	AutoFlow -w analyse_networks.af -o $SCRATCH'/analysed_Networks/'$NETWORK -V $variables $1 -m 2gb -t '7-00:00:00'
 
 
 
