@@ -1,6 +1,6 @@
 # @author Pedro Seoane Zonjic, Fernando Moreno Jabato
 
-%generate_tripartite_network){
+generate_tripartite_network){
 	module load ruby/2.4.1
 	source ~soft_bio_267/initializes/init_pets
 	node_character='A'   # A = All, D = duplications, d = deletions
@@ -35,7 +35,7 @@
 }
 
 
-%build_main_network){
+build_main_network){
 	source ~soft_bio_267/initializes/init_netanalyzer
 	source ~soft_bio_267/initializes/init_pets
 	LAYERS='hpo,HP;regions,\.;patients,[0-9]'
@@ -51,7 +51,7 @@
 }
 
 
-%generate_random_models_[nodes]){
+generate_random_models_[nodes]){
 	#initialize R
 	source ~soft_bio_267/initializes/init_R
 	#Next line for Randomize HPO-Loci
@@ -74,7 +74,7 @@
 	done 
 }
 
-%generate_rdm_virtual_models){
+generate_rdm_virtual_models){
 	#initialize R and Ruby
 	source ~soft_bio_267/initializes/init_R
 	source ~soft_bio_267/initializes/init_netanalyzer
