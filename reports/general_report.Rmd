@@ -1181,35 +1181,35 @@ REAC_f <- list(ByModel = data[['filtered_reactome_extended']],
 
 # Preare and Unify
 unify_filtered_data <- function(set){
-	# if(is.null(set)){
-	# 	return(set)
-	# }else if(is.null(dim(set))){
-	# 	return(set)
-	# }
-	# Prepare container
-	set$ByModel$Signal <- as.character(set$ByModel$Signal)
-	set$ByAll$Signal <- as.character(set$ByAll$Signal)
-
-	# Transform both sets
-	set$ByModel <- set$ByModel[which(set$ByModel$PvalThr == pval_thr[1]),-which(colnames(set$ByModel) %in% c("PvalThr","Ratio"))]
-	set$ByAll <- cbind(Model = rep("All",nrow(set$ByAll)),set$ByAll)
-	# Prepare signal list format
-	invisible(lapply(seq(nrow(set$ByModel)),function(i){
+	# Transfor ByModel
+	set$ByModel$Signal <- as.character(set$ByModel$Signal) # Prepare container
+	set$ByModel <- set$ByModel[which(set$ByModel$PvalThr == pval_thr[1]),-which(colnames(set$ByModel) %in% c("PvalThr","Ratio"))] # transform set
+	invisible(lapply(seq(nrow(set$ByModel)),function(i){ # Prepare signal list format
 		set$ByModel$Signal[i] <<- strsplit(as.character(set$ByModel$Signal[i]),";")
 	}))
-	invisible(lapply(seq(nrow(set$ByAll)),function(i){
-		set$ByAll$Signal[i] <<- strsplit(as.character(set$ByAll$Signal[i]),";")
-	}))
-	# Concat
-	finalSet <- rbind(set$ByModel, set$ByAll)
+
+	# Transfor BySignal
+	if(!is.null(set$ByAll)){
+		# Prepare container
+		set$ByAll$Signal <- as.character(set$ByAll$Signal)
+
+		# Transform both sets
+		set$ByAll <- cbind(Model = rep("All",nrow(set$ByAll)),set$ByAll)
+		# Prepare signal list format
+		invisible(lapply(seq(nrow(set$ByAll)),function(i){
+			set$ByAll$Signal[i] <<- strsplit(as.character(set$ByAll$Signal[i]),";")
+		}))
+		# Concat
+		finalSet <- rbind(set$ByModel, set$ByAll)		
+	}else{
+		finalSet <- set$ByModel
+	}
 	return(finalSet)
 }
 
 GO_f <- unify_filtered_data(GO_f)
 KEGG_f <- unify_filtered_data(KEGG_f)
 REAC_f <- unify_filtered_data(REAC_f)
-
-
 
 
 # Add NOT FILTERED info to networks
@@ -1239,9 +1239,6 @@ meta2fitlered_format <- function(metadata, model){
 GO_f   <- rbind(meta2fitlered_format(meta_go[which(meta_go$Model == model_target & meta_go$Pval == pval_thr[1]),],model_target),GO_f)
 KEGG_f <- rbind(meta2fitlered_format(meta_kegg[which(meta_kegg$Model == model_target & meta_kegg$Pval == pval_thr[1]),],model_target),KEGG_f)
 REAC_f <- rbind(meta2fitlered_format(meta_reac[which(meta_reac$Model == model_target & meta_reac$Pval == pval_thr[1]),],model_target),REAC_f)
-
-
-
 
 
 # Conenctivity matrix function
@@ -1276,9 +1273,21 @@ MLinks <- lapply(filt_models,function(model){
 	net_reac <- REAC_f[which(REAC_f$Model == model),]
 
 	# Obtain Link matrixes
-	MGO   <- MConn_from_net(net_go)
-	MKEGG <- MConn_from_net(net_kegg)
-	MREAC <- MConn_from_net(net_reac)
+	if(nrow(net_go)>0){
+		MGO <- MConn_from_net(net_go)
+	}else{
+		MGO <- NULL
+	}
+	if(nrow(net_kegg)>0){
+		MKEGG <- MConn_from_net(net_kegg)
+	}else{
+		MKEGG <- NULL
+	}
+	if(nrow(net_reac)>0){
+		MREAC <- MConn_from_net(net_reac)
+	}else{
+		MREAC <- NULL
+	}
 
 	# Return connectivity matrixes
 	return(list(GO = MGO, KEGG = MKEGG, REAC = MREAC))
@@ -1289,6 +1298,16 @@ MLinks <- lapply(filt_models,function(model){
 
 # Preare useful functions
 A_per_B <- function(MLink, model, rowsAsA = TRUE, AName, BName){
+	# Check 
+	if(is.null(MLink)){
+		aux <- data.frame(A = "",
+						  B = "",
+						  Prc   = -1,
+						  Model = model, stringsAsFactors = FALSE)
+		colnames(aux) <- c(AName,BName,"Prc","Model")
+		return(aux)
+	}
+	# Transform
 	info <- as.data.frame(do.call(rbind,lapply(seq(ifelse(rowsAsA,nrow(MLink),ncol(MLink))),function(i){
 		df <- data.frame(A     = ifelse(rowsAsA,rownames(MLink)[i],colnames(MLink)[i]),
 						 B     = ifelse(rowsAsA,sum(MLink[i,]),sum(MLink[,i])),
@@ -1404,7 +1423,8 @@ plots_set_filtered <- function(signal,PhenPerFS,FSPerPhen,label, printTable = FA
 	# PLOT 1: plot of number of signals per HPO grouped by model type
 	p1 <- ggplot(signal, aes(x = Model, y = SignalAmount, fill = Model)) +
 		  labs(x = "Network after filtering by *", y = paste(label,"terms per Phenotype")) +
-		  geom_boxplot(show.legend = FALSE) +
+		  # geom_boxplot(show.legend = FALSE) +
+		  geom_boxplot() +
 		  theme(axis.text.x = element_blank()) + 
 		  scale_fill_manual(values = c(model_cols,"brown3"))
 
@@ -1417,15 +1437,15 @@ plots_set_filtered <- function(signal,PhenPerFS,FSPerPhen,label, printTable = FA
 
 	# PLOT 3: frequencies histogram for FunSys-HPO
 	p3 <- ggplot(FSPerPhen, aes(x = FunSys, y = stat(density), colour = Model)) +
-		  geom_freqpoly(binwidth = 1, show.legend = TRUE) +
+		  geom_freqpoly(binwidth = 1, show.legend = FALSE) +
 		  scale_color_manual(values = c(model_cols,"brown3")) +
 		  labs(x = paste(label,"terms per Phenotype"), y = "Ocurrence Probability") +
 		  ylim(0,1)
 
 	# Obtain legend
-	legend <- get_legend(p3)
+	legend <- get_legend(p1)
 	# Remove legend from plot
-	p3 <- p3 + theme(legend.position = "none")
+	p1 <- p1 + theme(legend.position = "none")
 
 	# PLOT
 #	grid.arrange(p1,p2,p3,legend,nrow = 1, top = label,widths=c(1.8, 2.3, 2.3, 0.8))
@@ -1450,6 +1470,8 @@ plots_set_filtered <- function(signal,PhenPerFS,FSPerPhen,label, printTable = FA
 	} 
 }
 
+
+
 # Generate plots
 plots_set_filtered(GO_f,hpo_per_go,go_per_hpo,"GO", printTable = TRUE)
 plots_set_filtered(KEGG_f,hpo_per_kegg,kegg_per_hpo,"KEGG", printTable = TRUE)
@@ -1460,6 +1482,8 @@ plots_set_filtered(REAC_f,hpo_per_reac,reac_per_hpo,"REACT", printTable = TRUE)
 # hpo_per_go[order(hpo_per_go$Model,-hpo_per_go$Phenotype),]
 # message("Go terms per Phenotype")
 # go_per_hpo[order(go_per_hpo$Model,-go_per_hpo$FunSys),]
+save.image("/mnt/home/users/bio_267_uma/jabato/projects/phenfunprotocol/TEST2.RData")
+
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ```
 

@@ -30,7 +30,7 @@ opt <- parse_args(OptionParser(option_list=option_list))
 enrichs <- read.table(file = opt$enrich, sep = "\t", quote = "", header = T, stringsAsFactors = F)
 
 # Load RDM info
-rdms_info <- read.table(file = opt$enrich, sep = "\t", quote = "", header  = T, stringsAsFactors = F)
+rdms_info <- read.table(file = opt$random, sep = "\t", quote = "", header  = T, stringsAsFactors = F)
 
 # Filter enrichments by rdm formats
 enrichs <- enrichs[which(unlist(lapply(enrichs$Model,function(rdm){return(rdm %in% rdms_info$Format)}))),]

@@ -8,6 +8,7 @@
 ############################################# README
 
 # You need to create a file like rdm_models_info given in this repository
+# You need to create a file like conf_pats_ids not given in this repository
 
 ############################################# README
 
@@ -21,10 +22,10 @@ export PATH=$currDir'/scripts':$PATH
 
 # SELECT NETWORK
 original_file=processed_data/patient_data.txt
-results_source=$SCRATCH'/analysed_networks/'
-source_networks=$SCRATCH'/build_networks'
-original_rels=$SCRATCH/build_networks_enriched/get_network_nodes.rb_0000/net.txt
-raw_original_rels=$SCRATCH/build_networks_enriched/get_network_nodes.rb_0000/net_notE.txt
+results_source=$SCRATCH'/analysed_Networks/'
+source_networks=$SCRATCH'/build_Networks'
+original_rels=$source_networks/get_network_nodes.rb_0000/net.txt
+raw_original_rels=$source_networks/get_network_nodes.rb_0000/net_notE.txt
 outf="results"
 
 # CONGIF VARIABLES
@@ -237,7 +238,7 @@ awk "{gsub(\">.*(,|$)\",\"\"); print}" |
 tr -d [:space:] |
 awk "{gsub(\",$\",\"\"); print}"` 
 
-# Generate report
+# # Generate report
 create_report.R -t reports/general_report.Rmd -o $outf'/generalreport.html' -d $files_report -H $files_report_headers 
 
 
@@ -245,12 +246,15 @@ create_report.R -t reports/general_report.Rmd -o $outf'/generalreport.html' -d $
 
 
 #############################################################  HPO REPORT
-
+# To activate CONFIDENTIAL MODE remove ">" from patients_ids_confidential entrances bellow and include patient's IDs into named file
+# WARNING!: confidential file name must be "conf_pats_ids" without extension
+# touch conf_pats_ids
 files_report=`echo -e "
 	$outf/filtered_go_unified,
 	$outf/ures_go_dict,
 	$outf/diseases_profiles,
-	$outf/patients_go_triplets
+	$outf/patients_go_triplets,
+	conf_pats_ids
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
 tr -d [:space:] |
@@ -261,7 +265,8 @@ files_report_headers=`echo -e "
 	t, # filtered_go_unified #
 	t, # ures_*_dict #
 	f, # diseases_profiles #
-	t  # patients_triplets #
+	t,  # patients_triplets #
+	f  # Confidential patients #
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
 tr -d [:space:] |
@@ -293,6 +298,7 @@ files_report=`echo -e "
 	$outf/patients_go_triplets,
 	$outf/patients_go_results,
 	$outf/ures_go_dict,
+	conf_pats_ids,
 >	$outf/hpo_freqs
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
@@ -304,6 +310,7 @@ files_report_headers=`echo -e "
 	t, # patients_triplets #
 	t, # patients_results #
 	t, # ures_dict #
+	f, # confidential patients #
 >	f  # hpo_freqs #
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
@@ -320,29 +327,3 @@ create_report.R -t reports/patient_results_report.Rmd -o $outf'/patient_kegg_rep
 # Generate Reactome Patient report
 files_report=`echo $files_report | awk "{gsub(\"kegg\",\"reactome\"); print}"`
 create_report.R -t reports/patient_results_report.Rmd -o $outf'/patient_reactome_report.html' -d $files_report -H $files_report_headers
-
-
-
-
-#############################################################  PACKAGE EFFECT REPORT
-files_report=`echo -e "
-	$outf/meta_go,
-	rdm_models_info,
-	$outf/pack_go
-"| awk "{gsub(\"#.*#\",\"\"); print}" | 
-awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
-tr -d [:space:] |
-awk "{gsub(\",$\",\"\"); print}"`
-
-
-files_report_headers=`echo -e "
-	t, # meta_go #
-	t, # rdm_models_info #
-	t  # pack_go #
-"| awk "{gsub(\"#.*#\",\"\"); print}" | 
-awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
-tr -d [:space:] |
-awk "{gsub(\",$\",\"\"); print}"` 
-
-# Generate GO Patient report
-create_report.R -t reports/package_effect_report.Rmd -o $outf'/packeffect.html' -d $files_report -H $files_report_headers
