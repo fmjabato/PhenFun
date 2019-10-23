@@ -9,6 +9,7 @@ source ~soft_bio_267/initializes/init_autoflow
 # Add necessary scripts
 current_dir=`pwd`
 export PATH=$current_dir'/scripts':$PATH
+export PATH=$current_dir'/sys_bio_lab_scripts':$PATH
 
 
 #establish the variables we need in the workflow

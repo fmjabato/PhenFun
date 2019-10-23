@@ -6,6 +6,7 @@
 source ~soft_bio_267/initializes/init_autoflow
 currDir=`pwd`
 export PATH=$currDir'/scripts':$PATH
+export PATH=$currDir'/sys_bio_lab_scripts':$PATH
 
 
 # SELECT NETWORK

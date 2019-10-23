@@ -18,6 +18,7 @@ source ~soft_bio_267/initializes/init_R
 module load ruby/2.4.1
 currDir=`pwd`
 export PATH=$currDir'/scripts':$PATH
+export PATH=$current_dir'/sys_bio_lab_scripts':$PATH
 
 
 # SELECT NETWORK
