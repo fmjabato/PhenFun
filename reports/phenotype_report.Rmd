@@ -122,7 +122,32 @@ data(hpo)
 HPOs <- data.frame(Term = phenotypes,
                    IC   = unlist(lapply(phenotypes,function(hp){enrichments$Phenotype_IC[which(enrichments$Phenotype == hp)[1]]})),
                    Name = unlist(lapply(phenotypes,function(hp){ifelse(hp %in% hpo$id, get_term_property(hpo,"name",hp),hp)})), stringsAsFactors = F)
+# Increase info
+HPOs <- as.data.frame(do.call(rbind,lapply(seq(nrow(HPOs)),function(i){
+  # Obtain HPO id
+  hp <- HPOs$Term[i]
+  # Find into patients results
+  indx_hp <- which(patients$Phenotype == hp)
+  # Obtain FunSys, Patients and Enriching genes
+  funsys <- length(unique(patients$FunSys[indx_hp]))
+  pats <- length(unique(patients$Patient[indx_hp]))
+  genes <- length(unique(unlist(lapply(patients$Shared_Genes_List[indx_hp],function(lst){unlist(strsplit(lst,";"))}))))
+  # Return info
+  return(data.frame(Term      = hp,
+            Name      = HPOs$Name[i],
+            IC        = HPOs$IC[i],
+            FunSys    = funsys,
+            Patients  = pats,
+            Genes_Enr = genes,
+            stringsAsFactors = FALSE))
+})))
+```
 
+
+## **Summary results**
+Following table contains information about phenotypes with results into this study:
+```{r print_metaresults,echo = FALSE}
+HPOs[-which(HPOs$Patients <= 0),-which(colnames(HPOs) %in% c("Term"))]
 ```
 
 
