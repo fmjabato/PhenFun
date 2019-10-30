@@ -129,27 +129,33 @@ HPOs <- as.data.frame(do.call(rbind,lapply(seq(nrow(HPOs)),function(i){
   # Find into patients results
   indx_hp <- which(patients$Phenotype == hp)
   # Obtain FunSys, Patients and Enriching genes
-  funsys <- length(unique(patients$FunSys[indx_hp]))
+  funsys <- unique(patients$FunSys[indx_hp])
   pats <- length(unique(patients$Patient[indx_hp]))
   genes <- length(unique(unlist(lapply(patients$Shared_Genes_List[indx_hp],function(lst){unlist(strsplit(lst,";"))}))))
+  # Study funsys
+  max_fs_ic <- max(fs_dict$FunSys_IC[which(fs_dict$FunSys %in% funsys)])
+  funsys <- length(funsys)
   # Return info
   return(data.frame(Term      = hp,
             Name      = HPOs$Name[i],
             IC        = HPOs$IC[i],
+            Max_FunSys_IC = max_fs_ic,
             FunSys    = funsys,
             Patients  = pats,
             Genes_Enr = genes,
             stringsAsFactors = FALSE))
 })))
+
+# Sort
+HPOs <- HPOs[order(-HPOs$IC,-HPOs$Max_FunSys_IC),]
 ```
 
 
 ## **Summary results**
-Following table contains information about phenotypes with results into this study:
+Following table contains information about phenotypes with results into this study. Table has been ordered in descending order using "IC" and "Max_FunSys_IC" values. 
 ```{r print_metaresults,echo = FALSE}
-HPOs[-which(HPOs$Patients <= 0),-which(colnames(HPOs) %in% c("Term"))]
+HPOs[which(HPOs$Patients > 0),-which(colnames(HPOs) %in% c("Term"))]
 ```
-
 
 
 

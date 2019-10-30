@@ -154,9 +154,13 @@ sor_package_effect.R -e $outf'/meta_reac' -n $outf'/full_networks' -t 1e-03 -p 2
 
 
 # Obtain experiment results patient stats and triplets
-patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/go_enrichments' -i "1,2,4,10" -g ':' -f $outf'/filtered_go_unified' -o $outf'/patients_go_results' -P $outf'/patients_go_triplets'
-patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/kegg_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_kegg_unified' -o $outf'/patients_kegg_results' -P $outf'/patients_kegg_triplets'
-patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/reactome_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_reactome_unified' -o $outf'/patients_reactome_results' -P $outf'/patients_reactome_triplets'
+patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/go_enrichments' -i "1,2,4,10" -g ':' -f $outf'/filtered_go_unified' -o $outf'/patients_raw_go_results' -P $outf'/patients_raw_go_triplets'
+patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/kegg_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_kegg_unified' -o $outf'/patients_raw_kegg_results' -P $outf'/patients_raw_kegg_triplets'
+patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/reactome_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_reactome_unified' -o $outf'/patients_raw_reactome_results' -P $outf'/patients_raw_reactome_triplets'
+
+patients_final_results.R -t $original_rels -n $outf'/full_networks' -e $outf'/go_enrichments' -i "1,2,4,10" -g ':' -f $outf'/filtered_go_unified' -o $outf'/patients_go_results' -P $outf'/patients_go_triplets'
+patients_final_results.R -t $original_rels -n $outf'/full_networks' -e $outf'/kegg_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_kegg_unified' -o $outf'/patients_kegg_results' -P $outf'/patients_kegg_triplets'
+patients_final_results.R -t $original_rels -n $outf'/full_networks' -e $outf'/reactome_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_reactome_unified' -o $outf'/patients_reactome_results' -P $outf'/patients_reactome_triplets'
 
 # Obtain enrichment dictionaries
 funsys_dict_generator.R -a -g $outf'/filtered_go_extended' -k $outf'/filtered_kegg_unified' -r $outf'/filtered_reactome_unified' -o $outf'/ures'
@@ -185,8 +189,8 @@ files_report=`echo -e "
 	$outf/filtered_go_unified,
 	$outf/filtered_kegg_unified,
 	$outf/filtered_reactome_unified,                          
-	$outf/patients_go_results,              # Patients results #
-	$outf/patients_go_triplets,
+	$outf/patients_raw_go_results,              # Patients results #
+	$outf/patients_raw_go_triplets,
 >	experiment/patients_results,              # Patients results #
 >	experiment/patients_triplets,
 	$outf/deviance_ratios,               # Ratios info #
@@ -296,8 +300,8 @@ create_report.R -t reports/phenotype_report.Rmd -o $outf'/pheno_reactome_report.
 #############################################################  PATIENTS REPORT
 
 files_report=`echo -e "
-	$outf/patients_go_triplets,
-	$outf/patients_go_results,
+	$outf/patients_raw_go_triplets,
+	$outf/patients_raw_go_results,
 	$outf/ures_go_dict,
 	conf_pats_ids,
 >	$outf/hpo_freqs
