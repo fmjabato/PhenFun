@@ -112,7 +112,7 @@ get_significant_terms.rb -r dec -t $th_rdm_filters -m rdm_info -n $rdm_models -c
 # Filter GO parentals into final filtered signal
 remove_parentals.R -f $outf'/filtered_go_signal' -i "3,1,2" -o $outf'/filtered_go_cleaned'
 
-
+# IMPORTANT: change the model string crafted into code with your "real" model ID
 # GO: Obtain extended metadata info for filtered signal
 # node_freqs.R -i $original_rels -t 1 -o $outf'/hpo_freqs'
 node_freqs.R -i $original_rels -t 1 -o $outf'/hpo_freqs' -a
@@ -120,11 +120,17 @@ extend_filtered_signal.R -s $outf'/filtered_go_cleaned' -r $outf'/deviance_ratio
 extend_filtered_signal.R -s $outf'/filtered_go_cleaned' -r $outf'/deviance_ratios' -T GO -f $outf'/hpo_freqs' -o $outf'/filtered_go_extended' -t $th_enrichments -m rdm_vl_ -a
 extend_filtered_signal.R -s $outf'/filtered_go_cleaned' -r $outf'/deviance_ratios' -T GO -f $outf'/hpo_freqs' -o $outf'/filtered_go_extended' -t $th_enrichments -m rdm_g_ -a
 
+
 # Include Real model into GO
 awk '{ if ($1 == "dec") {print $1 "\t" $2 "\t" $4 "\t" $9} }' $outf'/go_enrichments' > $outf'/go_enrichments_fFormat'
 tail -n +2 $outf/go_enrichments_fFormat > $outf/go_enrichments_filteredFormat
 rm $outf/go_enrichments_fFormat
 extend_filtered_signal.R -s $outf'/go_enrichments_filteredFormat' -T GO -f $outf'/hpo_freqs' -o $outf'/filtered_go_extended' -t $th_enrichments -m dec -a
+
+# Store a copy of real source unfiltered relationships 
+awk 'BEGIN{FS="\t"}{ if ($1 == "dec") {print $2 "\t" $3 "\t" $4 "\t" $9 "\t" $10} }' $outf'/go_enrichments' > $outf'/real_go_enrichments'
+awk 'BEGIN{FS="\t"}{ if ($1 == "dec") {print $2 "\t" $3 "\t" $4 "\t" $9 "\t" $10} }' $outf'/kegg_enrichments' > $outf'/real_kegg_enrichments'
+awk 'BEGIN{FS="\t"}{ if ($1 == "dec") {print $2 "\t" $3 "\t" $4 "\t" $9 "\t" $10} }' $outf'/reactome_enrichments' > $outf'/real_reactome_enrichments'
 
 
 # KEGG: Obtain extended metadata info for filtered signal
@@ -259,6 +265,7 @@ files_report=`echo -e "
 	$outf/ures_go_dict,
 	$outf/diseases_profiles,
 	$outf/patients_go_triplets,
+	$outf/real_go_enrichments,
 	conf_pats_ids
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
@@ -271,6 +278,7 @@ files_report_headers=`echo -e "
 	t, # ures_*_dict #
 	f, # diseases_profiles #
 	t,  # patients_triplets #
+	f, # real enrichments #
 	f  # Confidential patients #
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   

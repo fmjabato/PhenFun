@@ -67,6 +67,7 @@ require(ontologyIndex)
 require(org.Hs.eg.db)
 require(igraph)
 require(naniar)
+require(metap)
 
 ################################################### Load necessary datasets
 
@@ -107,6 +108,9 @@ if(sort_type){ # By ID (increasing)
   phenotypes <- unique(phenotypes$Phenotype)
 }
 
+# Real model unfitlered enrichments
+real_enrichments <- data[[5]]
+colnames(real_enrichments) <- c("Phen","Onto","Fun","Pval","Genes")
 
 # Prepare recursive text
 chunks <- function(code, options = ""){paste(paste("```{r ",options,"}",sep = ""),code,"```",sep="\n")}
@@ -117,42 +121,103 @@ out <- NULL
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ```
 
+```{r Update_Raw_Rels, include = FALSE}
+# Find list of unique phenotypes/funsys into RAW
+raw_phenos <- lapply(phenotypes,function(hp){which(real_enrichments$Phen == hp)})
+raw_funsys <- lapply(unique(patients$FunSys),function(fs){which(real_enrichments$Fun == fs)})
+
+names(raw_phenos) <- phenotypes
+names(raw_funsys) <- unique(patients$FunSys)
+
+# Update patients table
+patients$Pval <- rep(NaN,nrow(patients))
+enrich_dict <- as.data.frame(do.call(rbind,lapply(phenotypes,function(hp){
+  # Find into patients
+  indx_pats <- which(patients$Phenotype == hp)
+  indx_raw_phen <- raw_phenos[[hp]]
+  # Obtain related funsys
+  funsys <- unique(patients$FunSys[indx_pats])
+  # Update HPO-FunSys pval relation value
+  info <- as.data.frame(do.call(rbind,lapply(funsys,function(fs){
+    # Find
+    indx_target <- intersect(indx_pats,which(patients$FunSys == fs))
+    indx_raw <- intersect(indx_raw_phen,raw_funsys[[fs]])
+    # Update
+    if(length(indx_raw > 0)){
+      pv <- real_enrichments$Pval[indx_raw[1]]
+    }else{
+      pv <- NaN
+    }
+    if(length(indx_target) > 0 & length(indx_raw) > 0){
+      patients$Pval[indx_target] <<- pv
+    }
+    # return
+    return(data.frame(Pheno = hp, FunSys = fs, Pval = pv))
+  })))
+  return(info)
+})))
+
+```
+
 ```{r Pheno_Info, include = FALSE}
 data(hpo)
 HPOs <- data.frame(Term = phenotypes,
-                   IC   = unlist(lapply(phenotypes,function(hp){enrichments$Phenotype_IC[which(enrichments$Phenotype == hp)[1]]})),
+                   Phenotype_IC = unlist(lapply(phenotypes,function(hp){enrichments$Phenotype_IC[which(enrichments$Phenotype == hp)[1]]})),
                    Name = unlist(lapply(phenotypes,function(hp){ifelse(hp %in% hpo$id, get_term_property(hpo,"name",hp),hp)})), stringsAsFactors = F)
+
 # Increase info
 HPOs <- as.data.frame(do.call(rbind,lapply(seq(nrow(HPOs)),function(i){
   # Obtain HPO id
   hp <- HPOs$Term[i]
   # Find into patients results
   indx_hp <- which(patients$Phenotype == hp)
-  # Obtain FunSys, Patients and Enriching genes
-  funsys <- unique(patients$FunSys[indx_hp])
-  pats <- length(unique(patients$Patient[indx_hp]))
-  genes <- length(unique(unlist(lapply(patients$Shared_Genes_List[indx_hp],function(lst){unlist(strsplit(lst,";"))}))))
+  indx_dict <- which(enrich_dict$Pheno == hp)
+  # Obtain FunSys, Patients, Enriching genes and relations pvalues
+  funsys <- enrich_dict$FunSys[indx_dict] 
+  pats   <- length(unique(patients$Patient[indx_hp]))
+  pvals  <- enrich_dict$Pval[indx_dict] 
+  genes  <- length(unique(unlist(lapply(patients$Shared_Genes_List[indx_hp],function(lst){unlist(strsplit(lst,";"))}))))
   # Study funsys
-  max_fs_ic <- max(fs_dict$FunSys_IC[which(fs_dict$FunSys %in% funsys)])
+  fs_ics <- fs_dict$FunSys_IC[which(fs_dict$FunSys %in% funsys)]
   funsys <- length(funsys)
+  # Integrate pvals
+  sumlog_pvals <- sum(-2*log(pvals))
+
   # Return info
   return(data.frame(Term      = hp,
-            Name      = HPOs$Name[i],
-            IC        = HPOs$IC[i],
-            Max_FunSys_IC = max_fs_ic,
-            FunSys    = funsys,
-            Patients  = pats,
-            Genes_Enr = genes,
-            stringsAsFactors = FALSE))
+                    Name      = HPOs$Name[i],
+                    Integrated_FS_Score = sumlog_pvals/funsys,
+                    Phenotype_IC = HPOs$Phenotype_IC[i],
+                    Max_FS_IC = max(fs_ics),
+                    Mean_FS_IC = mean(fs_ics),
+                    Min_FS_Pval  = min(pvals),
+                    FunSys    = funsys,
+                    Patients  = pats,
+                    Genes_Enr = genes,
+                    stringsAsFactors = FALSE))
 })))
 
 # Sort
-HPOs <- HPOs[order(-HPOs$IC,-HPOs$Max_FunSys_IC),]
+HPOs <- HPOs[order(-HPOs$Integrated_FS_Score,-HPOs$Phenotype_IC),]
 ```
 
 
 ## **Summary results**
-Following table contains information about phenotypes with results into this study. Table has been ordered in descending order using "IC" and "Max_FunSys_IC" values. 
+A summary table with results metadata is included bellow. Data included into this table are:
+
+* **Name:** phenotype term name.
+* **Integrated_FS_Score:** integration of all FunSys-Phenotype relationships p-values. $\frac{\sum{i=1}{N} -2log(p_{i}))}{N}$
+* **Phenotype_IC:** phenotype assigned IC.
+* **Max_FS_IC:** maximum linked FunSys term IC. 
+* **Mean_FS_IC:** mean linked FunSys term IC.
+* **Min_FS_Pval:** minimum linked FunSys relationship p-value.
+* **FunSys:** number of FunSys linked.
+* **Patients:** number of Patients with linkable results by FunSys results.
+* **Genes_Enr:** genes being used into a FunSys-Phenotype relationship.
+
+Table has been ordered in decreasing order based on "Integrated_FS_Score" value.
+**WARNING:** some term names can appear using their ID. It means that dictionary package version (ontologyIndex) is using an ontology version which not includes it term.
+
 ```{r print_metaresults,echo = FALSE}
 HPOs[which(HPOs$Patients > 0),-which(colnames(HPOs) %in% c("Term"))]
 ```
@@ -175,7 +240,7 @@ genes_all <- data.frame(ENTREZ = names(genes_all), SYMBOL = as.vector(genes_all)
 report_data <- lapply(phenotypes, function(hp){
   # Generate header text
   indx <- which(HPOs$Term == hp)
-  header <- paste(hp," (",HPOs$IC[indx],") ", HPOs$Name[indx], sep = "")
+  header <- paste(hp," (",HPOs$Phenotype_IC[indx],") ", HPOs$Name[indx], sep = "")
 
   # Calculate parentals
   parentals <- as.data.frame(do.call(rbind,lapply(tail(head(get_ancestors(hpo,hp),-1),-1),function(p){
