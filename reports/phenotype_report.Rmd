@@ -110,7 +110,15 @@ if(sort_type){ # By ID (increasing)
 
 # Real model unfitlered enrichments
 real_enrichments <- data[[5]]
-colnames(real_enrichments) <- c("Phen","Onto","Fun","Pval","Genes")
+if(length(unique(real_enrichments[,2])) <= 3){
+  colnames(real_enrichments) <- c("Phen","Onto","Fun","Pval","Genes")  
+}else{
+  colnames(real_enrichments) <- c("Phen","Fun","Fun_Name","Pval","Genes")
+}
+
+# Load Phenotypes dictionary
+phenos_dict <- data[[6]]
+colnames(phenos_dict) <- c("ID","Name")
 
 # Prepare recursive text
 chunks <- function(code, options = ""){paste(paste("```{r ",options,"}",sep = ""),code,"```",sep="\n")}
@@ -161,9 +169,13 @@ enrich_dict <- as.data.frame(do.call(rbind,lapply(phenotypes,function(hp){
 
 ```{r Pheno_Info, include = FALSE}
 data(hpo)
+# HPOs <- data.frame(Term = phenotypes,
+#                    Phenotype_IC = unlist(lapply(phenotypes,function(hp){enrichments$Phenotype_IC[which(enrichments$Phenotype == hp)[1]]})),
+#                    Name = unlist(lapply(phenotypes,function(hp){ifelse(hp %in% hpo$id, get_term_property(hpo,"name",hp),hp)})), stringsAsFactors = F)
+
 HPOs <- data.frame(Term = phenotypes,
                    Phenotype_IC = unlist(lapply(phenotypes,function(hp){enrichments$Phenotype_IC[which(enrichments$Phenotype == hp)[1]]})),
-                   Name = unlist(lapply(phenotypes,function(hp){ifelse(hp %in% hpo$id, get_term_property(hpo,"name",hp),hp)})), stringsAsFactors = F)
+                   Name = unlist(lapply(phenotypes,function(hp){ifelse(hp %in% phenos_dict$ID, phenos_dict$Name[which(phenos_dict$ID == hp)[1]],hp)})), stringsAsFactors = F)
 
 # Increase info
 HPOs <- as.data.frame(do.call(rbind,lapply(seq(nrow(HPOs)),function(i){

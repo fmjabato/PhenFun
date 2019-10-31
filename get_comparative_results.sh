@@ -171,6 +171,9 @@ patients_final_results.R -t $original_rels -n $outf'/full_networks' -e $outf'/re
 # Obtain enrichment dictionaries
 funsys_dict_generator.R -a -g $outf'/filtered_go_extended' -k $outf'/filtered_kegg_unified' -r $outf'/filtered_reactome_unified' -o $outf'/ures'
 
+# Obtain HPO dictionary
+grep -w 'id:\|name:' 'external_data/hp.obo' | sed 'N;s/\nname:/\t/g' | sed 's/id: //g' > $outf'/hp_id2name'
+
 
 ## MAIN REPORT
 # Main report files
@@ -266,6 +269,7 @@ files_report=`echo -e "
 	$outf/diseases_profiles,
 	$outf/patients_go_triplets,
 	$outf/real_go_enrichments,
+	$outf/hp_id2name,
 	conf_pats_ids
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
@@ -279,6 +283,7 @@ files_report_headers=`echo -e "
 	f, # diseases_profiles #
 	t,  # patients_triplets #
 	f, # real enrichments #
+	f, # HPOs dictionary #
 	f  # Confidential patients #
 "| awk "{gsub(\"#.*#\",\"\"); print}" | 
 awk "{gsub(\">.*(,|$)\",\"\"); print}" |   
