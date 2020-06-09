@@ -29,7 +29,7 @@ To launch these steps you must:
 - Perform functional analysis:
 	1. Optionally, change `working_nets` generated file if you don't want to execute step 2, for all networks.
 	2. Configure `launch_analyse_networks.sh` script. Configurable variables are:
-		- `networks_source`: folder with generated networks. By default: *<BuildStepFolder>/ln_0000/working_netowrks*
+		- `networks_source`: folder with generated networks. By default: *BuildStepFolder/ln_0000/working_netowrks*
 		- `n_frags`: number of fragmets to split network. Used to speed up analysis. Default: 4. 
 		- `clprof_enrichments`: terms sets to be used, separated by colon (:). Allowed: `go`, `kegg`, `reactome`.
 		- `pval_thresold`: to be applied. DEfault: 0.001.
@@ -40,13 +40,34 @@ To launch these steps you must:
 		- `original_file`: build step input file.
 		- `results_source`: folder with analyse step results.
 		- `source_networks`: folder with build step results.
-		- `original_rels`: (optional) original calculated tripartite network. Default: <source_networks>/get_network_nodes.rb_0000/net.txt.
-		- `raw_original_rels`: (optional) original calculated tripartite network without enrichment. Default <source_networks>/get_network_nodes.rb_0000/net_notE.txt
+		- `original_rels`: (optional) original calculated tripartite network. Default: source_networks/get_network_nodes.rb_0000/net.txt.
+		- `raw_original_rels`: (optional) original calculated tripartite network without enrichment. Default source_networks/get_network_nodes.rb_0000/net_notE.txt
 		- `outf`: (optional) folder name where results will be stored. Default: results.
 		- `th_enrichments`: (optional) functional analysis threshold to be applied. Must be equal or greater than used at functional analysis step. Default: 1e-03
-		- `th_rdm_filters`: (optional) threshold used to filter functional enrichments using random probability. Random probability is calculated using <termInstancesAmongRDModels>/<numRDModels>. Default : 0.01
+		- `th_rdm_filters`: (optional) threshold used to filter functional enrichments using random probability. Random probability is calculated using termInstancesAmongRDModels/numRDModels. Default : 0.01
 		- `rdm_models`: check value to identify if any problem has occur during simulation. Must be equal to number of rdm models generated at build step.
 		- `diff_rdms`: (optional) number of random models which must validate a Phenotype-FunctionalTerm tuple to be validated. Default: 3 
 	2. Execute `get_comparative_results.sh`.
 
 ## License
+This software is under MIT License.
+
+Copyright (c) 2020 Fernando Moreno Jabato and collaborators.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
