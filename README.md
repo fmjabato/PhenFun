@@ -23,7 +23,9 @@ To launch these steps you must:
 		- `association_thresold`: threshold appplied over HyI significance value between tripartite links. Default: 2.
 		- `official_hpo`: (OPTIONAL) Human Phenotype Ontology official Phenotype-Gene file. Will be automatically downloaded by this script.
 		- `hpo_enrichment`: flag to include parental phenotypes into patient profiles. Use `-r` to avoid enrichment or set empty to enrich. 
-		- `hpo_ontology`: (OPTIONAL) Human Phenotype Ontology OBO file. Will be automatically downloaded by this script. 
+		- `hpo_ontology`: (OPTIONAL) Human Phenotype Ontology OBO file. Will be automatically downloaded by this script.
+		- `regions_blacklist`: (OPTIONAL) A file with regions which is used to filter patients file and tripartite network.
+		- `regions_filter`: (OPTIONAL) type of filter to be applied if regions blacklist file is provided. Allowed: remove (r) or cut in fragments (c) if overlaps with a blacklist region.
 	2. Optionally you can configure `build_networks.af` to perform special experiments.
 	3. Execute `launch_build_network.sh` script. 
 - Perform functional analysis:
