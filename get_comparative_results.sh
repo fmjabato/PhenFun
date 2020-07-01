@@ -27,6 +27,7 @@ results_source=$SCRATCH'/analysed_Networks/'
 source_networks=$SCRATCH'/build_Networks'
 original_rels=$source_networks/get_network_nodes.rb_0000/net.txt
 raw_original_rels=$source_networks/get_network_nodes.rb_0000/net_notE.txt
+raw_tripartite=$SCRATCH/build_networks_enriched/get_network_nodes.rb_0000/tripartite_network.txt
 outf="results"
 
 # CONGIF VARIABLES
@@ -44,6 +45,10 @@ mkdir results
 # Bring net info (2pats filter)
 cp $raw_original_rels $outf'/source_net'
 cp $original_rels $outf'/net'
+
+# Bring net info (raw)
+grep "HP:" $raw_tripartite > $outf'/raw_source_net'
+grep -v "HP:" $raw_tripartite | awk '{print $2 "\t" $1}'  >> $outf'/raw_source_net'
 
 # Obtain HPO of used networks
 awk '$1 ~ /HP/ {print $1} ' $outf'/net' | uniq > $outf'/net_hpos'
@@ -160,9 +165,9 @@ sor_package_effect.R -e $outf'/meta_reac' -n $outf'/full_networks' -t 1e-03 -p 2
 
 
 # Obtain experiment results patient stats and triplets
-patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/go_enrichments' -i "1,2,4,10" -g ':' -f $outf'/filtered_go_unified' -o $outf'/patients_raw_go_results' -P $outf'/patients_raw_go_triplets'
-patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/kegg_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_kegg_unified' -o $outf'/patients_raw_kegg_results' -P $outf'/patients_raw_kegg_triplets'
-patients_final_results.R -t $raw_original_rels -n $outf'/full_networks' -e $outf'/reactome_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_reactome_unified' -o $outf'/patients_raw_reactome_results' -P $outf'/patients_raw_reactome_triplets'
+patients_final_results.R -t $raw_source_net -n $outf'/full_networks' -e $outf'/go_enrichments' -i "1,2,4,10" -g ':' -f $outf'/filtered_go_unified' -o $outf'/patients_raw_go_results' -P $outf'/patients_raw_go_triplets'
+patients_final_results.R -t $raw_source_net -n $outf'/full_networks' -e $outf'/kegg_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_kegg_unified' -o $outf'/patients_raw_kegg_results' -P $outf'/patients_raw_kegg_triplets'
+patients_final_results.R -t $raw_source_net -n $outf'/full_networks' -e $outf'/reactome_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_reactome_unified' -o $outf'/patients_raw_reactome_results' -P $outf'/patients_raw_reactome_triplets'
 
 patients_final_results.R -t $original_rels -n $outf'/full_networks' -e $outf'/go_enrichments' -i "1,2,4,10" -g ':' -f $outf'/filtered_go_unified' -o $outf'/patients_go_results' -P $outf'/patients_go_triplets'
 patients_final_results.R -t $original_rels -n $outf'/full_networks' -e $outf'/kegg_enrichments' -i "1,2,3,10" -g '/' -f $outf'/filtered_kegg_unified' -o $outf'/patients_kegg_results' -P $outf'/patients_kegg_triplets'
