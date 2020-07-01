@@ -45,7 +45,9 @@ variables=`echo -e "
 	\\$association_thresold=2,
 	\\$official_hpo=$current_dir/external_data/hpo_db_phen2gene.txt,
 	\\$hpo_enrichment='',
-	\\$hpo_ontology=$current_dir/external_data/hp.obo
+	\\$hpo_ontology=$current_dir/external_data/hp.obo,
+	\\$regions_blacklist='',
+	\\$regions_filter='c'
 " | tr -d [:space:]`
 
 #Lauch autoflow 

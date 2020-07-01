@@ -9,9 +9,25 @@ generate_tripartite_network){
 	echo -e "HP:0000001\nHP:0000118" > list_of_hpo_to_exclude.txt
 	# Generate networks
 	?
-	get_network_nodes.rb -p $hpo_ontology -e list_of_hpo_to_exclude.txt -i $patients_file -m $node_character -o tripartite_network.txt -c cluster_coords_not_enriched.txt -r 'none'
-	get_network_nodes.rb -p $hpo_ontology -e list_of_hpo_to_exclude.txt -i $patients_file -m $node_character -o tripartite_network_enriched.txt -c cluster_coords_enriched.txt -r 'root'
+	get_network_nodes.rb -p $hpo_ontology -e list_of_hpo_to_exclude.txt -i $patients_file -m $node_character -o tripartite_network_raw.txt -c cluster_coords_not_enriched_raw.txt -r 'none'
+	get_network_nodes.rb -p $hpo_ontology -e list_of_hpo_to_exclude.txt -i $patients_file -m $node_character -o tripartite_network_enriched_raw.txt -c cluster_coords_enriched_raw.txt -r 'root'
 	rm cluster_coords.txt
+	# Filter
+	if [ -f "$regions_blacklist" ]; then
+		filter_sors_by_blacklist.R -i cluster_coords_not_enriched_raw.txt -f $regions_blacklist -o cluster_coords_not_enriched_filtered.txt -t $regions_filter -n tripartite_network_raw.txt -O tripartite_network_filtered.txt
+		filter_sors_by_blacklist.R -i cluster_coords_enriched_raw.txt -f $regions_blacklist -o cluster_coords_enriched_filtered.txt -t $regions_filter -n tripartite_network_enriched_raw.txt -O tripartite_network_enriched_filtered.txt
+		ln -s cluster_coords_not_enriched_filtered.txt cluster_coords_not_enriched.txt
+		ln -s cluster_coords_enriched_filtered.txt cluster_coords_enriched.txt
+		ln -s tripartite_network_filtered.txt tripartite_network.txt
+		ln -s tripartite_network_enriched_filtered.txt tripartite_network_enriched.txt
+	else
+		ln -s cluster_coords_not_enriched_raw.txt cluster_coords_not_enriched.txt
+		ln -s cluster_coords_enriched_raw.txt cluster_coords_enriched.txt
+		ln -s tripartite_network_raw.txt tripartite_network.txt
+		ln -s tripartite_network_enriched_raw.txt tripartite_network_enriched.txt
+	fi
+
+	# ENrich
 	if $hpo_enrichment; then
 		# Always do the not enriched
 		merge_pairs.rb -i tripartite_network.txt -k 'HP:' -o "fr_notE_" -n $NUMBER -m $conn_filter
